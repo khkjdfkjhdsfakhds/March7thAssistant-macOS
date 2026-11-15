@@ -21,6 +21,7 @@ from utils.pause import (COMMAND_PAUSE, COMMAND_RESUME, COMMAND_STOP, STATE_PAUS
 from utils.runs import (EXIT_ELEVATION_FAILED, EXIT_FAILED, EXIT_OK, LOCK_UNAVAILABLE, STATUS_RUNNING,
                         effective_status, is_valid_run_id, list_run_ids, load_run, new_run_id, read_active_run,
                         recent_runs, run_file, runs_dir)
+from utils.runtime_paths import get_app_root
 from utils.tasks import UNSUPPORTED_TASK
 
 # 仅由非提权入口处理、不转交给管理员进程的参数
@@ -106,10 +107,15 @@ def _entrypoints(install_dir: str) -> dict:
         names = {"gui": "March7th Launcher.exe", "cli": "March7th Assistant.exe", "agent_cli": "m7a.exe"}
         return {key: os.path.join(install_dir, name) for key, name in names.items()
                 if os.path.exists(os.path.join(install_dir, name))}
-    return {
-        "gui": f'"{sys.executable}" "{os.path.join(install_dir, "app.py")}"',
-        "cli": f'"{sys.executable}" "{os.path.join(install_dir, "main.py")}"',
+    app_root = get_app_root()
+    result = {
+        "gui": f'"{sys.executable}" "{os.path.join(app_root, "app.py")}"',
+        "cli": f'"{sys.executable}" "{os.path.join(app_root, "main.py")}"',
     }
+    m7a_wrapper = os.path.join(app_root, "m7a")
+    if os.path.exists(m7a_wrapper):
+        result["agent_cli"] = m7a_wrapper
+    return result
 
 
 def _elevation(is_admin: bool, uac_free_state: str) -> str:
@@ -134,7 +140,7 @@ def collect_status() -> dict:
     from utils.agent_skill import last_sync_results
     from utils.install_registry import is_gui_running, registry_path
 
-    install_dir = os.path.abspath(os.getcwd())
+    install_dir = get_app_root()
     config_path = os.path.abspath("config.yaml")
     game_path = cfg.get_value("game_path") or ""
     is_admin = is_user_admin()
@@ -151,10 +157,14 @@ def collect_status() -> dict:
         "entrypoints": _entrypoints(install_dir),
         "config_file": config_path,
         "config_exists": os.path.exists(config_path),
-        "config_writable": _dir_writable(install_dir),
+        "config_writable": _dir_writable(os.path.dirname(config_path)),
         "config_reference": os.path.abspath(os.path.join("assets", "config", "config.example.yaml")),
         "first_run_completed": bool(cfg.get_value(base64.b64decode("YXV0b191cGRhdGU=").decode("utf-8"))),
         "cloud_game_enable": bool(cfg.get_value("cloud_game_enable", False)),
+        "playcover_enable": bool(cfg.get_value("playcover_enable", False)),
+        "playcover_bundle_id": cfg.get_value("playcover_bundle_id"),
+        "playcover_transport": cfg.get_value("playcover_transport", "auto"),
+        "playcover_restore_focus": bool(cfg.get_value("playcover_restore_focus", True)),
         "game_path": game_path,
         "game_path_exists": bool(game_path) and os.path.exists(game_path),
         "after_finish": cfg.get_value("after_finish"),
@@ -275,7 +285,7 @@ def worker_command(argv, run_id: str) -> list:
         if not os.path.exists(worker):
             worker = os.path.abspath(sys.executable)
         return [worker, *args]
-    return [sys.executable, os.path.abspath("main.py"), *args]
+    return [sys.executable, os.path.join(get_app_root(), "main.py"), *args]
 
 
 def _launch_elevated(cmd):
@@ -354,6 +364,40 @@ def run_task_elevated(argv, json_output=False, detach=False, launcher=None, out=
     if json_output:
         _print_json(out, record if record is not None else {"run_id": run_id, "status": "unknown", "exit_code": code})
     return _normalize_exit_code(code)
+
+
+def run_task_detached(argv, json_output=False, out=None) -> int:
+    """在非 Windows（如 macOS）后台启动独立任务进程并立即返回 run_id。"""
+    import subprocess
+
+    out = out or sys.stdout
+    run_id = new_run_id()
+    log_path = run_file(run_id, ".log")
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    cmd = worker_command(argv, run_id)
+    with open(log_path, "ab") as log_file:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=os.getcwd(),
+            stdin=subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    _say(out, f"任务已在后台启动（进程 {proc.pid}），输出写入 {log_path}")
+    _say(out, f"跟随输出：{entry_hint()} --follow {run_id}    查询状态：{entry_hint()} --status")
+    if json_output:
+        _print_json(
+            out,
+            {
+                "run_id": run_id,
+                "status": STATUS_RUNNING,
+                "pid": proc.pid,
+                "log_file": log_path,
+                "record_file": run_file(run_id, ".json"),
+            },
+        )
+    return EXIT_OK
 
 
 # ---------- 跟随已有运行 / 发送控制指令 ----------

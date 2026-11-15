@@ -240,8 +240,7 @@ TABLE_SOURCES = [
     ("module/workflow/__init__.py", (("STEP_TYPE_LABELS", None), ("CONDITION_TYPE_LABELS", None))),
     ("module/update/version_check.py", (("_CDK_ERROR_MESSAGES", None),)),
     # 任务名与主页卡片文案：常量里存的是中文原文（msgid），显示时才 tr()
-    ("utils/tasks.py", (("AVAILABLE_TASKS", None), ("CLI_ONLY_TASKS", None), ("UNSUPPORTED_TASK", None))),
-    ("tasks/weekly/currency_wars_strategy.py", (("STRATEGY_NAMES", None),)),
+    ("utils/tasks.py", (("AVAILABLE_TASKS", None),)),
     ("app/card/card_edit_dialog.py", (
         ("HOME_EXTRA_TASKS", None),
         ("DEFAULT_CARDS", ("title", "label", "menu_items")),
@@ -474,7 +473,7 @@ def run_checks() -> tuple[list[str], list[str]]:
 
 # 界面实际加载的文档基名（help_interface / changelog_interface 经 localized_doc_path 读取）。
 # 后缀登记校验、译文完整性校验、zh_TW 生成共用此清单，防止多处清单漂移。
-DOC_BASES = ("Tutorial", "Workflow", "FAQ", "Background", "TasksTable", "Changelog")
+DOC_BASES = ("Tutorial", "Workflow", "FAQ", "TasksTable", "Changelog")
 
 
 def check_docs(docs_dir: Path | None = None) -> list[str]:

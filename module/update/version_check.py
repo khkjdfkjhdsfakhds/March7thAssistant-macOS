@@ -9,10 +9,10 @@ import concurrent.futures
 import json
 import os
 import re
+import sys
 import time
 import threading
 from dataclasses import dataclass
-from urllib.parse import urlsplit
 
 import requests
 
@@ -44,9 +44,13 @@ class VersionCheckError(RuntimeError):
 
 # ── GitHub API 镜像列表 ──────────────────────────────────────────────
 
+_MAC_GITHUB_REPO = "khkjdfkjhdsfakhds/March7thAssistant-macOS"
+_UPSTREAM_GITHUB_REPO = "moesnow/March7thAssistant"
+_GITHUB_REPO = _MAC_GITHUB_REPO if sys.platform == "darwin" else _UPSTREAM_GITHUB_REPO
+
 GITHUB_API_BASES = (
-    "https://api.github.com/repos/moesnow/March7thAssistant",
-    "https://github.kotori.top/https://api.github.com/repos/moesnow/March7thAssistant",
+    f"https://api.github.com/repos/{_GITHUB_REPO}",
+    f"https://github.kotori.top/https://api.github.com/repos/{_GITHUB_REPO}",
 )
 
 _GITHUB_API_URLS = [base + "/releases/latest" for base in GITHUB_API_BASES]
@@ -145,10 +149,9 @@ def pick_asset(assets: list[dict], full: bool = True) -> dict | None:
     """从 release assets 中挑选匹配的资源对象。"""
     for asset in assets:
         url = asset.get("browser_download_url", "")
-        if not url:
-            continue
-        filename = asset.get("name") or urlsplit(url).path.rsplit("/", 1)[-1]
-        if filename.lower().endswith((".7z", ".zip")) and ("full" in filename) == full:
+        if full and "full" in url:
+            return asset
+        if not full and "full" not in url:
             return asset
     return None
 
@@ -337,7 +340,13 @@ def _check_github(
         log.info(f"GitHub 确认已是最新版本: {current_version}")
         return None
 
-    asset = pick_asset(release.get("assets", []), full=full)
+    assets = release.get("assets", [])
+    asset = pick_asset(assets, full=full)
+    if not asset and sys.platform == "darwin":
+        asset = next(
+            (a for a in assets if ".dmg" in (a.get("browser_download_url") or a.get("name") or "").lower()),
+            None,
+        )
     if not asset:
         raise VersionCheckError(tr("没有找到合适的下载URL"))
 
@@ -406,6 +415,12 @@ def check_for_update(
             log.warning(f"Mirror酱 检测失败，回退到 GitHub: {e}")
 
     # GitHub（含 source == "GitHub" 或 Mirror酱 失败的回退）
-    result = _check_github(prerelease, current_version, full, request_proxies)
+    try:
+        result = _check_github(prerelease, current_version, full, request_proxies)
+    except VersionCheckError:
+        if not prerelease and sys.platform == "darwin":
+            result = _check_github(True, current_version, full, request_proxies)
+        else:
+            raise
     log.debug(f"GitHub 检测结果: {result}")
     return result

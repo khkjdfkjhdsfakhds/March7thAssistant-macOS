@@ -1,16 +1,15 @@
 # coding:utf-8
 import copy
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPainter, QPainterPath, QImage, QAction
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QGraphicsDropShadowEffect, QFileDialog, QDialog
+from PySide6.QtCore import Qt, QRectF
+from PySide6.QtGui import QPainter, QPainterPath, QImage, QAction, QColor, QPen
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGraphicsDropShadowEffect, QFileDialog, QDialog
 
-from qfluentwidgets import ScrollArea, FluentIcon, RoundMenu, PushButton
+from qfluentwidgets import ScrollArea, FluentIcon, RoundMenu, PushButton, isDarkTheme
 
 from .common.style_sheet import StyleSheet
 from .card.samplecardview1 import SampleCardView1
 from .card.card_edit_dialog import DEFAULT_CARDS, HOME_EXTRA_TASKS, CardEditDialog, display_label, migrate_home_cards
-from utils.tasks import supported_tasks
 from tasks.base.tasks import start_task
 
 from module.config import cfg
@@ -35,7 +34,12 @@ class BannerWidget(QWidget):
         if os.path.abspath(banner_path) != os.path.abspath(self.default_banner_path):
             self.menu.addAction(QAction(tr("恢复默认图片"), self, triggered=lambda: on_restore_default_banner_image()))
         self.banner_image = Image.open(banner_path)
-        min_height = min(self.parent().parent().height() - 271 - 49, (self.parent().parent().width() - 73) * self.banner_image.height // self.banner_image.width)
+        if sys.platform == 'darwin':
+            win_w, win_h = self._windowSize()
+            banner_w = max(1, win_w - 74 - 40)
+            min_height = max(180, min(win_h - 282, banner_w * self.banner_image.height // self.banner_image.width))
+        else:
+            min_height = min(self.parent().parent().height() - 271 - 49, (self.parent().parent().width() - 73) * self.banner_image.height // self.banner_image.width)
         self.setFixedHeight(min_height)
 
         self.vBoxLayout = QVBoxLayout(self)
@@ -62,6 +66,7 @@ class BannerWidget(QWidget):
         self.path = None
         self.parent_height = 0
         self.parent_width = 0
+        self._cache_key = None
 
         # 点击标签可以选择新的背景图片
         def _on_gallery_label_clicked(event):
@@ -82,6 +87,7 @@ class BannerWidget(QWidget):
                     return
                 self.banner = None
                 self.path = None
+                self._cache_key = None
                 self.update()
 
         def on_restore_default_banner_image():
@@ -92,6 +98,7 @@ class BannerWidget(QWidget):
                 return
             self.banner = None
             self.path = None
+            self._cache_key = None
             # 移除恢复默认按钮
             for action in self.menu.actions():
                 if action.text() == tr("恢复默认图片"):
@@ -109,10 +116,50 @@ class BannerWidget(QWidget):
         self.vBoxLayout.addWidget(self.galleryLabel)
         self.vBoxLayout.addStretch(1)  # 添加弹性空间，将下方任务卡片推到底部
 
+    def _windowSize(self) -> tuple[int, int]:
+        win = self.window()
+        if win is not None and win is not self:
+            return win.width(), win.height()
+        p = self.parent().parent()
+        return p.width(), p.height()
+
     def paintEvent(self, e):
         super().paintEvent(e)
         painter = QPainter(self)
         painter.setRenderHints(QPainter.RenderHint.SmoothPixmapTransform | QPainter.RenderHint.Antialiasing)
+
+        if sys.platform == 'darwin':
+            win_w, win_h = self._windowSize()
+            cur_w = max(1, self.width())
+            target_h = max(180, min(win_h - 282, cur_w * self.banner_image.height // self.banner_image.width))
+            if self.height() != target_h:
+                self.setFixedHeight(target_h)
+            cache_key = (win_w, win_h, self.width(), self.height())
+            if not self.banner or not self.path or self._cache_key != cache_key:
+                self._cache_key = cache_key
+                image_height = min(
+                    self.banner_image.height,
+                    max(1, self.banner_image.width * max(1, self.height()) // max(1, self.width()))
+                )
+                crop_area = (0, 0, self.banner_image.width, image_height)
+                cropped_img = self.banner_image.crop(crop_area).convert("RGB")
+                img_data = np.ascontiguousarray(cropped_img)
+                height, width, channels = img_data.shape
+                bytes_per_line = channels * width
+                self.banner = QImage(img_data.data, width, height, bytes_per_line, QImage.Format.Format_RGB888).copy()
+
+                path = QPainterPath()
+                path.addRoundedRect(QRectF(self.rect()), 12.0, 12.0)
+                self.path = path
+
+            painter.setClipPath(self.path)
+            painter.drawImage(self.rect(), self.banner)
+            painter.setClipping(False)
+            border_color = QColor(255, 255, 255, 26) if isDarkTheme() else QColor(0, 0, 0, 20)
+            painter.setPen(QPen(border_color, 1.0))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 11.5, 11.5)
+            return
 
         if not self.banner or not self.path or self.parent_height != self.parent().parent().height() or self.parent_width != self.parent().parent().width():
             self.parent_height = self.parent().parent().height()
@@ -128,7 +175,10 @@ class BannerWidget(QWidget):
             self.banner = QImage(img_data.data, width, height, bytes_per_line, QImage.Format.Format_RGB888)
 
             path = QPainterPath()
-            path.addRoundedRect(0, 0, width + 50, height + 50, 10, 10)  # 10 is the radius for corners
+            if sys.platform == 'darwin':
+                path.addRect(0, 0, width + 50, height + 50)
+            else:
+                path.addRoundedRect(0, 0, width + 50, height + 50, 10, 10)  # 10 is the radius for corners
             self.path = path.simplified()
 
         painter.setClipPath(self.path)
@@ -156,9 +206,17 @@ class HomeInterface(ScrollArea):
         self.setWidget(self.view)
         self.setWidgetResizable(True)
 
-        self.vBoxLayout.setContentsMargins(0, 0, 0, 0)
-        self.vBoxLayout.setSpacing(25)
-        self.vBoxLayout.addWidget(self.banner)
+        if sys.platform == 'darwin':
+            self.vBoxLayout.setContentsMargins(0, 34, 0, 16)
+            self.vBoxLayout.setSpacing(18)
+            self.bannerLayout = QHBoxLayout()
+            self.bannerLayout.setContentsMargins(20, 0, 20, 0)
+            self.bannerLayout.addWidget(self.banner)
+            self.vBoxLayout.addLayout(self.bannerLayout)
+        else:
+            self.vBoxLayout.setContentsMargins(0, 0, 0, 0)
+            self.vBoxLayout.setSpacing(25)
+            self.vBoxLayout.addWidget(self.banner)
         self.vBoxLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
     def loadSamples(self):
@@ -166,27 +224,24 @@ class HomeInterface(ScrollArea):
             tr("任务 >"), self.view)
 
         # 添加编辑按钮到标题栏
-        self.editButton = PushButton(FluentIcon.EDIT, tr("编辑"))
-        self.editButton.setFixedHeight(30)
-        self.editButton.clicked.connect(self._on_edit_cards)
-        self.basicInputView.headerLayout.addWidget(self.editButton)
+        edit_btn = PushButton(FluentIcon.EDIT, tr("编辑"))
+        edit_btn.setFixedHeight(30)
+        edit_btn.clicked.connect(self._on_edit_cards)
+        self.basicInputView.headerLayout.addWidget(edit_btn)
 
-        self.refreshBackendTasks()
+        # 从配置加载卡片数据
+        cards_data = self._load_home_cards()
+
+        for card in cards_data:
+            action = self._build_card_action(card)
+            self.basicInputView.addSampleCard(
+                icon=card.get("icon", ""),
+                # 内置卡片存的是中文原文，这里按当前语言显示；用户自定义标题原样显示
+                title=display_label(card.get("title", "")),
+                action=action
+            )
+
         self.vBoxLayout.addWidget(self.basicInputView)
-
-    def retranslateUi(self):
-        StyleSheet.HOME_INTERFACE.apply(self)
-        title = tr('三月七小助手')
-        if cfg.ui_language_now in ('zh_CN', 'zh_TW'):
-            title += '\nMarch7thAssistant'
-        self.banner.galleryLabel.setText(title)
-        actions = self.banner.menu.actions()
-        actions[0].setText(tr('更换背景图片'))
-        if len(actions) > 1:
-            actions[1].setText(tr('恢复默认图片'))
-        self.basicInputView.titleLabel.setText(tr('任务 >'))
-        self.editButton.setText(tr('编辑'))
-        self.refreshBackendTasks()
 
     def _build_card_action(self, card_data):
         """根据卡片配置数据构建动作"""
@@ -244,25 +299,15 @@ class HomeInterface(ScrollArea):
                 cfg.set_value("home_cards", None)
             else:
                 cfg.set_value("home_cards", dialog.result_cards)
-            self.refreshBackendTasks()
+            self._rebuild_cards()
 
-    def refreshBackendTasks(self):
+    def _rebuild_cards(self):
         """重建卡片视图"""
         self.basicInputView.clearCards()
 
-        tasks = supported_tasks(cfg)
-        if "fight" in tasks:
-            tasks.update(HOME_EXTRA_TASKS)
+        cards_data = self._load_home_cards()
 
-        for card in self._load_home_cards():
-            if card.get("action_type") == "single":
-                if card.get("task_id", "main") not in tasks:
-                    continue
-            else:
-                items = [item for item in card.get("menu_items", []) if item.get("task_id") in tasks]
-                if not items:
-                    continue
-                card = {**card, "menu_items": items}
+        for card in cards_data:
             action = self._build_card_action(card)
             self.basicInputView.addSampleCard(
                 icon=card.get("icon", ""),

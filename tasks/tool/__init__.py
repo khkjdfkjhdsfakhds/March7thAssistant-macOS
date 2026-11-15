@@ -1,6 +1,5 @@
 from typing import Literal
 from module.config import cfg
-from module.config.platform import get_control_backend
 from .screenshot import ScreenshotApp
 from .autoplot import AutoPlot
 from module.game import get_game_controller
@@ -49,7 +48,7 @@ class ToolManager:
         try:
             self.screenshot_error_message = ""
             log.info("开始捕获图像...")
-            if get_control_backend(cfg) == 'local' and not cfg.use_background_screenshot:
+            if not cfg.cloud_game_enable and not cfg.use_background_screenshot:
                 game = get_game_controller()
                 if not game.switch_to_game():
                     log.error("游戏尚未启动")

@@ -16,8 +16,7 @@ def save_error_screenshot(logger):
 
         # 云游戏模式下，若浏览器已关闭则跳过截图
         from module.config import cfg
-        from module.config.platform import get_control_backend
-        if get_control_backend(cfg) == 'cloud':
+        if cfg.cloud_game_enable:
             from module.game import cloud_game
             if not cloud_game.driver:
                 logger.debug("云游戏浏览器未运行，跳过错误截图")
@@ -35,13 +34,7 @@ def save_error_screenshot(logger):
 
         # 尝试捕获截图
         try:
-            if getattr(auto.input_handler, 'is_background', False) is True:
-                # 后台模式出错时窗口往往已不可用（最小化、游戏退出），只尝试一次，不再等待窗口恢复
-                from module.automation.automation import screenshot_retry_timeout
-                with screenshot_retry_timeout(0):
-                    auto.take_screenshot()
-            else:
-                auto.take_screenshot()
+            auto.take_screenshot()
             # 验证截图是否成功捕获
             if auto.screenshot is not None:
                 auto.screenshot.save(filepath)

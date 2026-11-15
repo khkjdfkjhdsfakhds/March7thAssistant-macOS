@@ -185,8 +185,6 @@ pyrightconfig.json
 /*config.yaml
 /config
 /warp.json
-/characters.json
-/characters.partial.json
 /logs
 /screenshots
 /3rdparty/*OCR-json*
@@ -209,9 +207,7 @@ smtp_temp.bin
 # Genshin_StarRail_fps_unlocker
 /3rdparty/Genshin_StarRail_fps_unlocker
 
-.agents/
-# 仅忽略仓库根目录的个人开发说明；assets/agent/AGENTS.md 是随发布包分发的公开文件
-/AGENTS.md
+# Claude Code
 .claude/
 CLAUDE.md
 
@@ -221,3 +217,8 @@ CLAUDE.md
 
 # Telemetry server
 telemetry_server/
+
+# macOS build artifacts & disk images
+.DS_Store
+*.dmg
+/tools/macos/pc_helper

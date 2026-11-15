@@ -13,26 +13,14 @@ from utils.logger.logger import Logger
 from typing import Optional
 from utils.singleton import SingletonMeta
 from utils.image_utils import ImageUtils
-from utils.pause import pause_ctl, pause_guard
+from utils.pause import pause_guard
 from module.game import get_game_controller
-from module.game.adb_transport import AdbError
-from module.localization import tr
 from module.ocr import ocr
 from module.config import cfg
-from module.config.platform import TouchProfileInputError, get_control_backend, get_ui_profile
+from module import mobile
 
 
 _screenshot_retry_timeout = ContextVar("screenshot_retry_timeout", default=60.0)
-_TOUCH_UNSUPPORTED_INPUTS = (
-    "press_key", "press_key_down", "press_key_up", "secretly_press_key", "press_mouse", "mouse_scroll",
-)
-
-
-def _reject_touch_input(name):
-    def reject(*args, **kwargs):
-        raise TouchProfileInputError(name)
-
-    return reject
 
 
 @contextmanager
@@ -67,21 +55,24 @@ class Automation(metaclass=SingletonMeta):
         """
         初始化输入处理器，将输入操作如点击、移动等绑定至实例变量。
 
-        支持的输入操作经过暂停卡点。不支持的操作立即报错。
+        所有输入均包一层暂停卡点（`pause_guard`）：暂停期间任何键鼠输入都会停在发出之前。
         """
         previous = getattr(self, 'input_handler', None)
         if previous is not None and callable(getattr(previous, 'close', None)):
             previous.close()
         self.input_handler = get_game_controller().get_input_handler()
-
-        touch = get_ui_profile(cfg).name == "touch_720"
-        inputs = ("mouse_click", "mouse_down", "mouse_up", "mouse_move", "mouse_drag", "secretly_write")
-        for name in inputs + _TOUCH_UNSUPPORTED_INPUTS:
-            if touch and name in _TOUCH_UNSUPPORTED_INPUTS:
-                method = _reject_touch_input(name)
-            else:
-                method = pause_guard(getattr(self.input_handler, name))
-            setattr(self, name, method)
+        self.mouse_click = pause_guard(self.input_handler.mouse_click)
+        self.mouse_down = pause_guard(self.input_handler.mouse_down)
+        self.mouse_up = pause_guard(self.input_handler.mouse_up)
+        self.mouse_move = pause_guard(self.input_handler.mouse_move)
+        self.mouse_drag = pause_guard(self.input_handler.mouse_drag)
+        self.mouse_scroll = pause_guard(self.input_handler.mouse_scroll)
+        self.press_key = pause_guard(self.input_handler.press_key)
+        self.press_key_down = pause_guard(self.input_handler.press_key_down)
+        self.press_key_up = pause_guard(self.input_handler.press_key_up)
+        self.secretly_press_key = pause_guard(self.input_handler.secretly_press_key)
+        self.press_mouse = pause_guard(self.input_handler.press_mouse)
+        self.secretly_write = pause_guard(self.input_handler.secretly_write)
 
     def close_input(self):
         if self.input_handler is not None:
@@ -93,8 +84,10 @@ class Automation(metaclass=SingletonMeta):
             return False
         if not bool(cfg.get_value('debug_mode_enable', False)):
             return False
-        backend = get_control_backend(cfg)
-        return backend == 'local' or (backend == 'cloud' and not cfg.get_value('browser_headless_enable', False))
+        # 云游戏无窗口模式下没有可见画面，无需显示叠加层
+        if cfg.get_value('cloud_game_enable', False) and cfg.get_value('browser_headless_enable', False):
+            return False
+        return True
 
     def _ensure_debug_overlay(self):
         """确保调试叠加层已初始化并显示。"""
@@ -196,26 +189,22 @@ class Automation(metaclass=SingletonMeta):
         """
         start_time = time.monotonic()
         timeout = _screenshot_retry_timeout.get()
-        adb = get_control_backend(cfg) == "adb"
         while True:
-            if adb:
-                pause_ctl.checkpoint()
-            handler = getattr(self, 'input_handler', None)
-            background = getattr(handler, 'is_background', False) is True
-            if background:
-                # 窗口暂时不可用（最小化、重建等）时等待恢复，与前台截图找不到窗口时的重试时限一致；
-                # 游戏进程已退出或超时则抛出写明原因的异常。
-                handler.wait_for_window(max(0.0, timeout - (time.monotonic() - start_time)))
             try:
                 result = Screenshot.take_screenshot(
                     self.window_title,
                     crop=crop,
                     use_background_screenshot=use_background_screenshot,
                     prefer_frame_screenshot=prefer_frame_screenshot,
-                    require_background=background,
                 )
                 if result:
                     self.screenshot, self.screenshot_pos, self.screenshot_scale_factor = result
+                    # 移动端裁剪区域可能被替换 记录实际原点相对 PC 裁剪原点的偏移
+                    # relative=True 的结果加上这个偏移 调用方按 PC 裁剪原点换算出的绝对坐标仍然正确
+                    if mobile.is_mobile():
+                        self.relative_shift = (self.screenshot_pos[0] - round(1920 * crop[0]), self.screenshot_pos[1] - round(1080 * crop[1]))
+                    else:
+                        self.relative_shift = (0, 0)
                     # 调试模式：清除上一帧的矩形框，并显示裁剪区域
                     if self._is_debug_enabled():
                         self._ensure_debug_overlay()
@@ -223,18 +212,14 @@ class Automation(metaclass=SingletonMeta):
                         if crop != (0, 0, 1, 1):
                             self._debug_draw_crop_region(crop)
                     return result
-                elif timeout > 0 and not adb:
-                    self.logger.error("截图失败：未能获取游戏窗口画面" if background else "截图失败：没有找到游戏窗口")
-            except AdbError:
-                raise
+                elif timeout > 0:
+                    self.logger.error("截图失败：没有找到游戏窗口")
             except Exception as e:
                 if timeout <= 0:
                     raise RuntimeError(f"截图失败：{e}") from e
                 self.logger.error(f"截图失败：{e}")
             remaining = timeout - (time.monotonic() - start_time)
             if remaining <= 0:
-                if adb:
-                    raise AdbError("frame_timeout", tr("ADB 截图超时，未取得可用的游戏画面"))
                 raise RuntimeError("截图超时")
             time.sleep(min(1, remaining))
 
@@ -258,7 +243,7 @@ class Automation(metaclass=SingletonMeta):
         return top_left, bottom_right
 
     @pause_guard
-    def find_image_element(self, target, threshold, scale_range, relative=False, cacheable=True):
+    def find_image_element(self, target, threshold, scale_range, relative=False, cacheable=True, _alternative=False):
         """
         查找图像元素。
         :param target: 目标图像路径。
@@ -267,26 +252,58 @@ class Automation(metaclass=SingletonMeta):
         :param relative: 是否返回相对位置。
         :return: 最佳匹配位置和相似度。
         """
-        profile = get_ui_profile(cfg)
-        target = profile.resolve_image_path(target)
-        if profile.name == "touch_720":
-            scale_range = None
+        badge = mobile.badge_config(target)
+        if badge is not None:
+            return self.find_mobile_badge_element(target, badge, relative)
+        alternatives = [] if _alternative else mobile.template_alternatives(target)
+        if alternatives:
+            for candidate in [None, *alternatives]:
+                result = self.find_image_element(target if candidate is None else candidate, threshold, scale_range, relative, cacheable, _alternative=candidate is None)
+                if result[0] is not None:
+                    return result
+            return None, None, None
         try:
-            if cacheable and target in self.img_cache:
-                mask = self.img_cache[target]['mask']
-                template = self.img_cache[target]['template']
-            else:
-                mask = ImageUtils.read_template_with_mask(target)  # 读取模板图片掩码
-                template = ImageUtils.read_image(target)  # 读取模板图片
-                if template is None:
-                    raise ValueError(f"读取图片失败：{target}")
-                if cacheable:
-                    self.img_cache[target] = {'mask': mask, 'template': template}
             screenshot = cv2.cvtColor(np.array(self.screenshot), cv2.COLOR_BGR2RGB)  # 将截图转换为RGB
-            if mask is not None:
-                matchVal, matchLoc = ImageUtils.scale_and_match_template(screenshot, template, threshold, scale_range, mask)  # 执行缩放并匹配模板
-            else:
-                matchVal, matchLoc = ImageUtils.scale_and_match_template(screenshot, template, threshold, scale_range)  # 执行缩放并匹配模板
+            # 移动端模板缩放比例不确定时 逐个比例尝试 取最好的结果
+            best = None
+            input_threshold = threshold
+            for mobile_scale in mobile.template_scales(target):
+                cache_key = target if mobile_scale == 1.0 else (target, mobile_scale)
+                if cacheable and cache_key in self.img_cache:
+                    mask = self.img_cache[cache_key]['mask']
+                    template = self.img_cache[cache_key]['template']
+                else:
+                    mask = mobile.read_template_mask(target, mobile_scale)  # 读取模板图片掩码
+                    template = mobile.read_template(target, scale=mobile_scale)  # 读取模板图片
+                    if template is None:
+                        raise ValueError(f"读取图片失败：{target}")
+                    if cacheable:
+                        self.img_cache[cache_key] = {'mask': mask, 'template': template}
+                if template.shape[0] > screenshot.shape[0] or template.shape[1] > screenshot.shape[1]:
+                    continue
+                scaled_threshold = mobile.template_threshold(target, input_threshold, mask is not None, mobile_scale)
+                if mask is not None and mobile.is_mobile():
+                    # 移动端画面和 PC 有细微差异 TM_SQDIFF 的绝对值没法用 PC 的阈值 改用带掩码的归一化相关系数
+                    matchVal, matchLoc = mobile.match_with_mask(screenshot, template, mask)
+                    scaled_threshold = mobile.mask_threshold(target)
+                    mask = None
+                    better = best is None or matchVal > best[0]
+                elif mask is not None:
+                    matchVal, matchLoc = ImageUtils.scale_and_match_template(screenshot, template, scaled_threshold, scale_range, mask)  # 执行缩放并匹配模板
+                    better = best is None or matchVal < best[0]
+                else:
+                    matchVal, matchLoc = ImageUtils.scale_and_match_template(screenshot, template, scaled_threshold, scale_range)  # 执行缩放并匹配模板
+                    better = best is None or matchVal > best[0]
+                if better:
+                    best = (matchVal, matchLoc, mask, template, scaled_threshold, mobile_scale)
+                if mask is None and scaled_threshold is not None and matchVal >= scaled_threshold:
+                    break
+            if best is None:
+                return None, None, None
+            matchVal, matchLoc, mask, template, threshold, mobile_scale = best
+            # 阈值太低时匹配结果不可靠 不记录比例
+            if mobile.is_mobile() and threshold is not None and threshold >= 0.6 and matchVal >= threshold:
+                mobile.learn_scale(target, mobile_scale)
 
             # 这里的相似度文本说明有问题，对于无mask匹配相似度越高越好。有mask匹配则是越低越好
             self.logger.debug(f"目标图片：{target.replace('./assets/images/', '')} 相似度：{matchVal:.2f} 匹配阈值：{threshold}")
@@ -311,11 +328,31 @@ class Automation(metaclass=SingletonMeta):
                     return top_left, bottom_right, matchVal
             else:
                 if not math.isinf(matchVal) and (threshold is None or matchVal >= threshold):
+                    if mobile.rejected_by_color(target, screenshot, self.calculate_positions(template, matchLoc, True)):
+                        self.logger.debug(f"目标图片：{target.replace('./assets/images/', '')} 颜色不符 视为不匹配")
+                        return None, None, None
                     top_left, bottom_right = self.calculate_positions(template, matchLoc, relative)
                     return top_left, bottom_right, matchVal
         except Exception as e:
             self.logger.error(f"寻找图片出错：{e}")
         return None, None, None
+
+    def find_mobile_badge_element(self, target, badge, relative=False):
+        """移动端带红点的模板：先找图标 再检查图标右上方有没有红点"""
+        icon, region = badge
+        top_left, bottom_right, value = self.find_image_element(icon, mobile.mask_threshold(icon), None, relative=True)
+        if top_left is None:
+            self.logger.debug(f"目标图片：{target.replace('./assets/images/', '')} 未找到图标")
+            return None, None, None
+        screenshot = cv2.cvtColor(np.array(self.screenshot), cv2.COLOR_RGB2BGR)
+        found = mobile.has_red_badge(screenshot, (top_left[0] + region[0], top_left[1] + region[1], region[2], region[3]))
+        self.logger.debug(f"目标图片：{target.replace('./assets/images/', '')} 图标相似度：{value:.2f} 红点：{found}")
+        if not found:
+            return None, None, None
+        if not relative:
+            top_left = (top_left[0] + self.screenshot_pos[0], top_left[1] + self.screenshot_pos[1])
+            bottom_right = (bottom_right[0] + self.screenshot_pos[0], bottom_right[1] + self.screenshot_pos[1])
+        return top_left, bottom_right, value
 
     def generate_black_white_map(self, pixel_bgr):
         """生成黑白图，标记与目标像素相似的区域。
@@ -342,9 +379,8 @@ class Automation(metaclass=SingletonMeta):
         返回:
         - 匹配的数量，或在出错时返回 None。
         """
-        target = get_ui_profile(cfg).resolve_image_path(target)
         try:
-            template = ImageUtils.read_image(target, cv2.IMREAD_GRAYSCALE)
+            template = mobile.read_template(target, cv2.IMREAD_GRAYSCALE)
             if template is None:
                 raise ValueError(f"读取图片失败：{target}")
             bw_map = self.generate_black_white_map(pixel_bgr)
@@ -357,14 +393,11 @@ class Automation(metaclass=SingletonMeta):
 
     @pause_guard
     def find_image_with_multiple_targets(self, target, threshold, scale_range, relative=False, mask_top_right_ratio=None):
-        profile = get_ui_profile(cfg)
-        target = profile.resolve_image_path(target)
-        if profile.name == "touch_720":
-            scale_range = None
         try:
-            template = ImageUtils.read_image(target, cv2.IMREAD_GRAYSCALE)
+            template = mobile.read_template(target, cv2.IMREAD_GRAYSCALE)
             if template is None:
                 raise ValueError(f"读取图片失败：{target}")
+            threshold = mobile.template_threshold(target, threshold, False)
             screenshot = cv2.cvtColor(np.array(self.screenshot), cv2.COLOR_BGR2GRAY)
             matches = ImageUtils.scale_and_match_template_with_multiple_targets(
                 screenshot, template, threshold, scale_range, mask_top_right_ratio=mask_top_right_ratio
@@ -835,6 +868,7 @@ class Automation(metaclass=SingletonMeta):
                 elif find_type == 'min_distance_text':
                     top_left, bottom_right = self.find_min_distance_text_element(target, source, source_type, include, need_ocr, position)
                 elif find_type == 'crop':
+                    target = mobile.map_crop(target)
                     scale_factor = self.screenshot_scale_factor if not relative else 1
                     offset_x = self.screenshot_pos[0] * (not relative)
                     offset_y = self.screenshot_pos[1] * (not relative)
@@ -846,6 +880,8 @@ class Automation(metaclass=SingletonMeta):
                     top_left, bottom_right = self.find_hsv_element(target, relative)
                 elif find_type == 'yolo':
                     top_left, bottom_right = self.find_yolo_element(target, threshold or 0.25, relative)
+                if top_left and bottom_right and relative and find_type != 'crop':
+                    top_left, bottom_right = self._shift_relative(top_left), self._shift_relative(bottom_right)
                 if top_left and bottom_right:
                     # 调试模式：绘制查找结果的矩形框
                     if self._is_debug_enabled():
@@ -862,6 +898,8 @@ class Automation(metaclass=SingletonMeta):
                 matches = self.find_image_with_multiple_targets(
                     target, threshold, scale_range, relative, mask_top_right_ratio=mask_top_right_ratio
                 )
+                if relative and matches:
+                    matches = [(self._shift_relative(a), self._shift_relative(b)) for a, b in matches]
                 # 调试模式：绘制所有匹配结果
                 if self._is_debug_enabled() and matches:
                     color = self._get_debug_color(find_type)
@@ -884,6 +922,11 @@ class Automation(metaclass=SingletonMeta):
             if i < max_retries - 1:
                 time.sleep(retry_delay)  # 在重试前等待一定时间
         return None
+
+    def _shift_relative(self, point):
+        """移动端裁剪区域被替换时 把相对实际裁剪区域的坐标换算成相对 PC 裁剪区域的坐标"""
+        dx, dy = getattr(self, 'relative_shift', (0, 0))
+        return (point[0] + dx, point[1] + dy)
 
     def shutdown_debug(self):
         """关闭调试叠加层。"""
@@ -917,7 +960,6 @@ class Automation(metaclass=SingletonMeta):
                     try:
                         time.sleep(normalized_press_duration)
                     finally:
-                        # 已按下的按钮必须释放，即使这时收到暂停或停止。
                         result = self.input_handler.mouse_up()
                 else:
                     result = self.mouse_click(x, y)

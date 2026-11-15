@@ -26,7 +26,6 @@ class LocalInput(InputBase):
             self.logger.debug(f"鼠标按下 ({x}, {y})")
         except Exception as e:
             self.logger.error(f"鼠标按下出错：{e}")
-            return False
 
     def mouse_up(self):
         '''释放鼠标按钮'''
@@ -35,7 +34,6 @@ class LocalInput(InputBase):
             self.logger.debug("鼠标释放")
         except Exception as e:
             self.logger.error(f"鼠标释放出错：{e}")
-            return False
 
     def mouse_move(self, x, y):
         '''将鼠标光标移动到屏幕上的（x，y）位置'''
@@ -45,18 +43,15 @@ class LocalInput(InputBase):
         except Exception as e:
             self.logger.error(f"鼠标移动出错：{e}")
 
-    def mouse_drag(self, start_x, start_y, end_x, end_y, duration=0.5, end_pause=0.0, repeats=1):
+    def mouse_drag(self, start_x, start_y, end_x, end_y, duration=0.5):
         '''按住鼠标左键从起点拖动到终点'''
         try:
-            for index in range(repeats):
-                pyautogui.moveTo(start_x, start_y)
-                try:
-                    pyautogui.mouseDown()
-                    pyautogui.moveTo(end_x, end_y, duration=max(0.0, float(duration or 0.0)))
-                    if end_pause and index == repeats - 1:
-                        time.sleep(end_pause)
-                finally:
-                    pyautogui.mouseUp()
+            pyautogui.moveTo(start_x, start_y)
+            try:
+                pyautogui.mouseDown()
+                pyautogui.moveTo(end_x, end_y, duration=max(0.0, float(duration or 0.0)))
+            finally:
+                pyautogui.mouseUp()
             self.logger.debug(f"鼠标拖动 ({start_x}, {start_y}) -> ({end_x}, {end_y})")
             return True
         except Exception as e:

@@ -1,19 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
-import sys
-
-sys.path.append(SPECPATH)
-from tools.pyinstaller_openssl import OPENSSL_RUNTIME_HOOKS, python_openssl_binaries
 
 
 a = Analysis(
     ['updater.py'],
     pathex=[],
-    binaries=python_openssl_binaries(),
+    binaries=[],
     datas=[],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=OPENSSL_RUNTIME_HOOKS,
+    runtime_hooks=[],
     excludes=['numpy', 'pandas', 'opencc'],
     noarchive=False,
     optimize=0,

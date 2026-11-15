@@ -34,7 +34,6 @@ class StyleSheet(StyleSheetBase, Enum):
     WORKFLOW_INTERFACE = "workflow_interface"
     LOG_INTERFACE = "log_interface"
     PIVOT = "pivot"
-    DESKTOP_TWIN = "desktop_twin"
 
     def path(self, theme=Theme.AUTO):
         theme = qconfig.theme if theme == Theme.AUTO else theme
@@ -65,6 +64,9 @@ class StyleSheet(StyleSheetBase, Enum):
             qss_content = qss_content.replace("'Segoe UI SemiBold'", "'PingFang SC', 'BlinkMacSystemFont'")
             qss_content = qss_content.replace('"Segoe UI"', '"PingFang SC", "BlinkMacSystemFont"')
             qss_content = qss_content.replace("'Segoe UI'", "'PingFang SC', 'BlinkMacSystemFont'")
+            # 替换等宽字体 Consolas
+            qss_content = qss_content.replace('"Consolas"', '"SF Mono", "Menlo"')
+            qss_content = qss_content.replace("'Consolas'", "'SF Mono', 'Menlo'")
 
         elif sys.platform == 'linux':
             if is_korean:

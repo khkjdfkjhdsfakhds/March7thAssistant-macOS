@@ -1,6 +1,5 @@
-from module.automation.background_input import GameWindowLost, InputInterrupted
 from module.config.platform import ProfileAssetNotFoundError, TouchProfileInputError
-from module.game.adb_transport import AdbError
+from module.game.cg_client import CGHelperError
 from module.logger import log
 from module.screen import screen
 
@@ -9,8 +8,7 @@ class GameRecoveryError(RuntimeError):
     """当前游戏画面无法安全恢复，后续任务需要停止。"""
 
 
-FATAL_GAME_ERRORS = (AdbError, GameWindowLost, InputInterrupted, ProfileAssetNotFoundError,
-                     TouchProfileInputError, GameRecoveryError)
+FATAL_GAME_ERRORS = (CGHelperError, ProfileAssetNotFoundError, TouchProfileInputError, GameRecoveryError)
 
 
 def run_steps(steps, on_step=None):

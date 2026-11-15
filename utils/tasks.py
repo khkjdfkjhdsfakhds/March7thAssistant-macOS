@@ -40,22 +40,25 @@ AVAILABLE_TASKS = {
     "notify": "测试消息推送",
     "redemption": "兑换码",
     "screen_test": "界面可切换性测试",
-    "character_export": "角色面板导出",
 }
 
 CLI_ONLY_TASKS = {"adb_check": "ADB 自检"}
 
 TOUCH_ROUTINE_TASKS = frozenset({"main", "routine", "daily", "power", "screen_test", "game"})
 HOST_TASKS = frozenset({"app_update", "notify"})
+WINDOWS_ONLY_TASKS = frozenset({"game_update", "game_pre_download"})
 UNSUPPORTED_TASK = "当前后端不支持，未执行"
 
 
 def task_is_supported(task_id, config=None):
+    import sys
     from module.config.platform import get_control_backend, get_ui_profile
 
     backend = get_control_backend(config)
     if task_id == "adb_check":
         return backend == "adb"
+    if sys.platform != "win32" and task_id in WINDOWS_ONLY_TASKS:
+        return False
     if task_id in HOST_TASKS:
         return True
     if backend == "adb":
@@ -96,7 +99,6 @@ PAUSABLE_TASKS = frozenset({
     "apocalyptic",
     "redemption",
     "screen_test",
-    "character_export",
 })
 
 

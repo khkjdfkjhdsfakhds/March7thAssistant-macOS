@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+WORKER_APP="/Applications/三月七小助手.app/Contents/Helpers/March7thWorker.app/Contents/MacOS/March7thWorker"
+WORKER_DIST="$SCRIPT_DIR/dist/三月七小助手.app/Contents/Helpers/March7thWorker.app/Contents/MacOS/March7thWorker"
+
+if [[ -x "$WORKER_APP" ]]; then
+    PYTHON_BIN="$WORKER_APP"
+elif [[ -x "$WORKER_DIST" ]]; then
+    PYTHON_BIN="$WORKER_DIST"
+else
+    PYTHON_BIN="$SCRIPT_DIR/.venv/bin/python"
+fi
+
+exec "$PYTHON_BIN" "$SCRIPT_DIR/main.py" "$@"

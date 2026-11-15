@@ -1,4 +1,6 @@
 from module.logger import log
 from module.screen.screen import Screen
 
-screen = Screen(logger=log)
+SCREENS_PATH = "./assets/config/screens.json"
+
+screen = Screen(SCREENS_PATH, log)

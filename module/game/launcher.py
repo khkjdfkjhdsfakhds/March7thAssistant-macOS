@@ -1,9 +1,11 @@
 import os
+import psutil
+import getpass
 import subprocess
 import win32gui
 from typing import Optional
 from module.game.base import GameControllerBase
-from module.game.local import LocalGameController
+from module.config.config import Config
 from utils.logger.logger import Logger
 
 
@@ -48,7 +50,46 @@ class LauncherController(GameControllerBase):
                 self.log_error(f"启动启动器时发生错误：{e}")
             return False
 
-    terminate_named_process = staticmethod(LocalGameController.terminate_named_process)
+    @staticmethod
+    def terminate_named_process(target_process_name, termination_timeout=10):
+        """
+        根据进程名终止属于当前用户的进程。
+
+        参数:
+        - target_process_name (str): 要终止的进程名。
+        - termination_timeout (int, optional): 终止进程前等待的超时时间（秒）。
+
+        返回值:
+        - bool: 如果成功终止进程则返回True，否则返回False。
+        """
+        current_user = getpass.getuser()
+        success = False
+
+        for proc in psutil.process_iter(attrs=["pid", "name", "username"]):
+            try:
+                name = proc.info["name"]
+                user = (proc.info["username"] or "").split("\\")[-1]  # 兼容 DOMAIN\\User
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+
+            # 精准匹配进程名并属于当前用户
+            if target_process_name.lower() in name.lower() and user == current_user:
+                try:
+                    p = psutil.Process(proc.info["pid"])
+                    p.terminate()
+                    try:
+                        p.wait(timeout=termination_timeout)
+                    except psutil.TimeoutExpired:
+                        # 超时直接kill
+                        p.kill()
+                        p.wait(timeout=3)
+
+                    success = True
+
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.Error):
+                    continue
+
+        return success
 
     def stop_game(self) -> bool:
         """终止启动器"""
@@ -62,21 +103,14 @@ class LauncherController(GameControllerBase):
             return False
 
     def get_window_handle(self):
-        result = self.get_window_handles()
-        return result[0] if result else None
-
-    def get_window_handles(self, window_names=None):
         """
-        返回所有标题匹配的可见窗口，供渠道启动核实归属。
+        只查找窗口标题匹配的窗口，返回其句柄。
         """
-        if window_names is None:
-            window_names = (self.window_name,)
-
         def callback(hwnd, result):
             if win32gui.IsWindowVisible(hwnd):
                 title = win32gui.GetWindowText(hwnd)
-                if title in window_names:
+                if title == self.window_name:
                     result.append(hwnd)
         result = []
         win32gui.EnumWindows(callback, result)
-        return result
+        return result[0] if result else None

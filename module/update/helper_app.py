@@ -406,8 +406,6 @@ class NativeUpdaterWindow:
                 # 未预设 URL 时，通过统一的版本检测获取更新信息
                 if not engine.download_url:
                     self._log("debug", "未预设URL，执行版本检测")
-                    # 版本检测没有进度回调，重试时要主动替换上一次的失败文案
-                    self._on_progress(UpdateProgress(UpdateStage.PREPARE, tr("正在检测更新"), indeterminate=True))
                     try:
                         from module.config import cfg
                         source = getattr(cfg, "update_source", "GitHub")
@@ -421,10 +419,7 @@ class NativeUpdaterWindow:
                         info = check_for_update(source, cdk, prerelease, full)
                     except Exception as e:
                         self._log("warning", f"版本检测失败: {e}")
-                        # 检测中途无法中断，用户已请求取消时直接收尾，不再弹失败提示
-                        if self._cancel_requested:
-                            raise UpdateCancelledError(tr("更新已取消")) from e
-                        raise
+                        info = None
 
                     if info is None:
                         self._log("info", "当前已是最新版本")

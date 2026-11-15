@@ -57,6 +57,15 @@ def should_skip_pause():
     return is_gui_started() or is_docker_started() or is_non_interactive()
 
 
+def _pause_input(prompt: str) -> bool:
+    """在标准输入可用时等待按回车；遇到 EOF 时安全返回 False 而不抛出异常。"""
+    try:
+        input(prompt)
+        return True
+    except EOFError:
+        return False
+
+
 def pause_on_error():
     """
     失败/错误时暂停（按回车继续）
@@ -64,7 +73,7 @@ def pause_on_error():
     """
     from module.config import cfg
     if not cfg.exit_after_failure and not should_skip_pause():
-        input("按回车键关闭窗口. . .")
+        _pause_input("按回车键关闭窗口. . .")
 
 
 def pause_on_success():
@@ -74,7 +83,7 @@ def pause_on_success():
     """
     from module.config import cfg
     if cfg.pause_after_success and not should_skip_pause():
-        input("按回车键关闭窗口. . .")
+        _pause_input("按回车键关闭窗口. . .")
 
 
 def pause_always():
@@ -83,7 +92,7 @@ def pause_always():
     仅在非 GUI/Docker/非交互模式启动时暂停
     """
     if not should_skip_pause():
-        input("按回车键关闭窗口. . .")
+        _pause_input("按回车键关闭窗口. . .")
 
 
 def pause_and_retry():
@@ -91,10 +100,8 @@ def pause_and_retry():
     暂停等待重试（按回车重试）
     仅在非 GUI/Docker/非交互模式启动时暂停，否则直接退出
     """
-    import sys
-    if should_skip_pause():
+    if should_skip_pause() or not _pause_input("按回车键重试. . ."):
         sys.exit(1)
-    input("按回车键重试. . .")
 
 
 def pause_and_continue():
@@ -103,4 +110,4 @@ def pause_and_continue():
     仅在非 GUI/Docker/非交互模式启动时暂停，否则直接继续
     """
     if not should_skip_pause():
-        input("按回车键继续. . .")
+        _pause_input("按回车键继续. . .")

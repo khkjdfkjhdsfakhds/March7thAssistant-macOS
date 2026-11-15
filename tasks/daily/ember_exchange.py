@@ -8,7 +8,6 @@ from module.logger import log
 from module.notification.notification import NotificationLevel
 from module.screen import screen
 from tasks.base.base import Base
-from tasks.base.list_drag import drag_to_edge
 from utils.date import Date
 
 
@@ -25,6 +24,7 @@ class EmberExchange:
     MENU_TEXT_CROP = (1240 / 1920, 0, 680 / 1920, 1)
     ITEM_LIST_CROP = (120 / 1920, 120 / 1080, 1680 / 1920, 820 / 1080)
     EMBER_TAB_CROP = (571 / 1920, 110 / 1080, 186 / 1920, 42 / 1080)
+    RETRY_SCROLL_CENTER_CROP = (955 / 1920, 535 / 1080, 10 / 1920, 10 / 1080)
     ITEM_INFO_WIDTH = 132 / 1920
     ITEM_INFO_HEIGHT = 204 / 1080
     PLUS_BUTTON_IMAGE = "./assets/images/share/ember_exchange/plus.png"
@@ -46,6 +46,7 @@ class EmberExchange:
     AFTER_CLOSE_PAUSE = 1.2
     DIALOG_TIMEOUT = 8
     POLL_PAUSE = 0.6
+    RETRY_SCROLL_COUNT = 120
     ITEMS = (
         EmberExchangeItem("星轨专票", "asset_ember_special_pass_enable", "asset_ember_special_pass_timestamp", 5),
         EmberExchangeItem("星轨通票", "asset_ember_regular_pass_enable", "asset_ember_regular_pass_timestamp", 5),
@@ -378,11 +379,11 @@ class EmberExchange:
     @classmethod
     def _scroll_to_bottom_for_retry(cls):
         try:
+            auto.click_element(cls.RETRY_SCROLL_CENTER_CROP, "crop", action="move")
             time.sleep(cls.ACTION_PAUSE)
-            completed = drag_to_edge(auto, (550 / 1920, 850 / 1080), (550 / 1920, 350 / 1080),
-                                     crop=(320 / 1920, 175 / 1080, 1420 / 1920, 755 / 1080), max_drags=12, duration=1.2)
+            auto.mouse_scroll(cls.RETRY_SCROLL_COUNT, -1, False)
             time.sleep(cls.ITEM_CLICK_PAUSE)
-            return completed
+            return True
         except Exception as e:
             log.warning(f"余烬兑换下滚补扫失败: {e}")
             return False

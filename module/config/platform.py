@@ -6,7 +6,7 @@ from module.config import cfg
 from module.localization import tr
 
 
-ControlBackend = Literal["local", "cloud", "adb"]
+ControlBackend = Literal["local", "cloud", "adb", "playcover"]
 
 
 class ProfileAssetNotFoundError(FileNotFoundError):
@@ -48,18 +48,26 @@ _UI_PROFILES = {
 
 def get_control_backend(config=None) -> ControlBackend:
     config = cfg if config is None else config
-    backend = getattr(config, "control_backend", None)
+    if bool(config.get_value("cloud_game_enable", False) if hasattr(config, "get_value") else getattr(config, "cloud_game_enable", False)):
+        return "cloud"
+    if bool(config.get_value("playcover_enable", False) if hasattr(config, "get_value") else getattr(config, "playcover_enable", False)):
+        return "playcover"
+    backend = config.get_value("control_backend", None) if hasattr(config, "get_value") else getattr(config, "control_backend", None)
     if backend is None:
-        return "cloud" if getattr(config, "cloud_game_enable", False) else "local"
-    if backend in ("local", "cloud", "adb"):
+        return "local"
+    if backend in ("local", "cloud", "adb", "playcover"):
         return backend
-    raise ValueError(tr("无效的 control_backend：{value}，可选值为 local、cloud、adb").format(value=backend))
+    raise ValueError(tr("无效的 control_backend：{value}，可选值为 local、cloud、adb、playcover").format(value=backend))
 
 
 def get_ui_profile(config=None) -> UIProfile:
     config = cfg if config is None else config
-    name = getattr(config, "ui_profile", None)
-    if getattr(config, "control_backend", None) == "adb" and name in (None, "pc_1080"):
+    backend = get_control_backend(config)
+    name = config.get_value("ui_profile", None) if hasattr(config, "get_value") else getattr(config, "ui_profile", None)
+    if backend == "playcover":
+        if name in (None, "pc_1080"):
+            return _UI_PROFILES["pc_1080"]
+    if backend == "adb" and name in (None, "pc_1080"):
         return _UI_PROFILES["touch_720"]
     if name is None:
         name = "pc_1080"

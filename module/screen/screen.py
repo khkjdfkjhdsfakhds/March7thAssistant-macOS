@@ -3,17 +3,13 @@ import time
 import json
 import threading
 from collections import deque
-from functools import cached_property
 from utils.color import green
 from utils.singleton import SingletonMeta
 from utils.logger.logger import Logger
 from typing import Optional
 from module.automation import auto
-from module.game.adb_transport import AdbError
-from module.automation.background_input import GameWindowLost, InputInterrupted
 from module.config import cfg
 from module.config.platform import ProfileAssetNotFoundError, TouchProfileInputError, get_control_backend, get_ui_profile
-from module.localization import tr
 
 
 class Screen(metaclass=SingletonMeta):
@@ -23,26 +19,31 @@ class Screen(metaclass=SingletonMeta):
 
     SCREEN_MATCH_THRESHOLD = 0.88
 
-    def __init__(self, config_path=None, logger: Optional[Logger] = None):
+    def __init__(self, config_path, logger: Optional[Logger] = None):
         """
         初始化界面管理器。
-        :param config_path: 界面图路径，省略时使用所选 UI 形态的界面图。
+        :param config_path: 界面配置文件的路径。
         :param logger: 日志管理器实例，用于记录日志。
         """
         self.logger = logger
         self.current_screen = None  # 当前显示的界面
         self.current_screen_threshold = 0  # 当前界面的阈值
-        self.config_path = config_path
+        self.screen_map = {}  # 存储界面信息的字典
         self.wait_screen_change_time = 0.5
         self.lock = threading.Lock()  # 创建一个锁，用于线程同步
+        self._setup_screens_from_config(config_path)
 
-    @cached_property
-    def screen_map(self):
-        # 首次使用时才加载界面图，允许未准备触屏素材时导入模块。
-        config_path = self.config_path if self.config_path is not None else get_ui_profile(cfg).screens_path
-        return self._load_screens_from_config(config_path)
+    def _add_screen(self, id, name, image_path, actions):
+        """
+        添加一个新界面到界面管理器。
+        :param id: 新界面的唯一标识。
+        :param name: 新界面的名称。
+        :param image_path: 用于识别界面的图片路径，可以是字符串或字符串列表（任一匹配即可）。
+        :param actions: 可切换的目标界面及操作序列。
+        """
+        self.screen_map[id] = {'name': name, 'image_path': image_path, 'actions': actions}
 
-    def _load_screens_from_config(self, config_path):
+    def _setup_screens_from_config(self, config_path):
         """
         从配置文件加载界面配置信息。
         :param config_path: 配置文件路径。
@@ -50,12 +51,11 @@ class Screen(metaclass=SingletonMeta):
         try:
             with open(config_path, 'r', encoding='utf-8') as file:
                 configs = json.load(file)
-            return {
-                config["id"]: {"name": config["name"], "image_path": config["image_path"], "actions": config["actions"]}
-                for config in configs
-            }
-        except FileNotFoundError as e:
-            raise ProfileAssetNotFoundError(tr("界面图文件不存在：{path}").format(path=config_path)) from e
+                for config in configs:
+                    self._add_screen(config["id"], config["name"], config["image_path"], config["actions"])
+        except FileNotFoundError:
+            self.logger.error(f"配置文件不存在：{config_path}")
+            raise
         except Exception as e:
             self.logger.error(f"配置文件解析失败：{e}")
             raise
@@ -145,8 +145,6 @@ class Screen(metaclass=SingletonMeta):
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        autotry = autotry and get_ui_profile(cfg).name != "touch_720"
-        screen_map = self.screen_map
         found_event = threading.Event()
 
         # 定义内部函数用于在线程中识别界面
@@ -167,14 +165,12 @@ class Screen(metaclass=SingletonMeta):
                             self.current_screen_threshold = result
                     found_event.set()
                     return screen_name
-            except ProfileAssetNotFoundError:
-                raise
             except Exception as e:
                 self.logger.debug(f"识别界面出错：{e}")
             return None
 
         if self.current_screen is not None and self._find_image(
-            screen_map[self.current_screen]['image_path'],
+            self.screen_map[self.current_screen]['image_path'],
             "image_threshold",
             self.SCREEN_MATCH_THRESHOLD,
         ):
@@ -188,16 +184,17 @@ class Screen(metaclass=SingletonMeta):
             import psutil
             mem = psutil.virtual_memory()
             if mem.available > 2 * 1024**3:
-                executor = ThreadPoolExecutor(max_workers=len(screen_map))
-                try:
-                    futures = [executor.submit(find_screen, name, screen) for name, screen in screen_map.items()]
-                    for future in as_completed(futures):
-                        if future.result() is not None:
-                            break
-                finally:
-                    executor.shutdown(wait=False, cancel_futures=True)
+                executor = ThreadPoolExecutor(max_workers=len(self.screen_map))
+                futures = [executor.submit(find_screen, name, screen) for name, screen in self.screen_map.items()]
+
+                for future in as_completed(futures):
+                    if future.result() is not None:
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        break
+                else:
+                    executor.shutdown(wait=False)
             else:
-                for name, screen in screen_map.items():
+                for name, screen in self.screen_map.items():
                     find_screen(name, screen)
                     if self.current_screen:
                         break
@@ -314,8 +311,6 @@ class Screen(metaclass=SingletonMeta):
                 for p in image_path:
                     try:
                         r = auto.find_element(p, find_type, threshold, **kwargs)
-                    except (AdbError, InputInterrupted, GameWindowLost, ProfileAssetNotFoundError):
-                        raise
                     except Exception as e:
                         self.logger.debug(f"查找图片 {p} 出错: {e}")
                         r = None
@@ -328,9 +323,6 @@ class Screen(metaclass=SingletonMeta):
                 return best
             else:
                 return auto.find_element(image_path, find_type, threshold, **kwargs)
-        except (AdbError, InputInterrupted, GameWindowLost, ProfileAssetNotFoundError):
-            # 窗口不可用或素材缺失应向上报告，不能当作未匹配反复重试。
-            raise
         except Exception as e:
             self.logger.debug(f"_find_image 出错: {e}")
             return None
@@ -346,6 +338,8 @@ class Screen(metaclass=SingletonMeta):
             self.logger.error("你可以通过 工具箱-游戏截图 判断当前游戏画面是否被正确获取")
         elif backend == "cloud":
             self.logger.error("使用云·星穹铁道请确保网络正常，浏览器能正常加载游戏画面")
+        elif backend == "playcover":
+            self.logger.error("使用 PlayCover 请确保窗口保持 16:9 比例且未被最小化，或开启 hguandl/PlayCover MaaTools")
         raise RuntimeError(error_message)
 
     def ensure_current_screen_is_clean(self, *, autotry=True):
@@ -388,9 +382,6 @@ class Screen(metaclass=SingletonMeta):
                     },
                 )
                 self.logger.debug("执行了一个操作")
-            except (AdbError, InputInterrupted, TouchProfileInputError, ProfileAssetNotFoundError):
-                # 用户需处理的输入中断、触屏不支持的操作和缺少素材都直接报告。
-                raise
             except Exception as e:
                 self.logger.debug(f"未知的操作: {e}")
 

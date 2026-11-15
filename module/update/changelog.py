@@ -13,7 +13,7 @@ from urllib.parse import quote, parse_qs, urljoin, urlsplit
 import requests
 
 from module.update.download_proxy import get_update_download_requests_proxies
-from module.update.version_check import GITHUB_API_BASES
+from module.update.version_check import GITHUB_API_BASES, _GITHUB_REPO
 from utils.version import Version
 
 
@@ -47,7 +47,7 @@ def clean_release_body(body: str) -> str:
 
 
 def changelog_url(target_version: str) -> str:
-    return ("https://github.com/moesnow/March7thAssistant/blob/"
+    return (f"https://github.com/{_GITHUB_REPO}/blob/"
             + quote(target_version, safe="") + "/assets/docs/Changelog.md")
 
 
@@ -151,7 +151,7 @@ def fetch_changelog(target_version: str, *, preferred_base: str = "", timeout: f
                         redirected = urljoin(url, response.headers.get("Location", ""))
                         parts = urlsplit(redirected)
                         if (parts.scheme != "https" or parts.netloc != "api.github.com"
-                                or parts.path != "/repos/moesnow/March7thAssistant/contents/assets/docs/Changelog.md"
+                                or parts.path != f"/repos/{_GITHUB_REPO}/contents/assets/docs/Changelog.md"
                                 or parse_qs(parts.query).get("ref") != [target_version]):
                             raise ValueError("历史更新记录重定向丢失目标版本或地址无效")
                         url, params = redirected, None

@@ -12,7 +12,7 @@ from qfluentwidgets import LineEdit, ComboBox, CheckBox
 from app.components.ascii_spin_box import AsciiSpinBox
 from qfluentwidgets import InfoBar, InfoBarPosition
 from qfluentwidgets import FluentIcon as FIF
-from utils.tasks import TASK_NAMES, supported_tasks, task_is_supported, UNSUPPORTED_TASK
+from utils.tasks import TASK_NAMES
 from module.workflow import load_workflows
 import uuid
 import os
@@ -141,12 +141,8 @@ class AddEditScheduleDialog(MessageBox):
         # 程序类型（本体、流程编排或外部程序）
         self.program_type_combo = ComboBox(self)
         # 程序类型：本体、流程编排、外部程序，以及来自配置的特殊程序
-        self.program_type_combo.addItem(tr('本体'), userData='self')
-        if task_is_supported('workflow', cfg):
-            self.program_type_combo.addItem(tr('流程编排'), userData='workflow')
-        elif str((task or {}).get('program', '')).strip().lower() == 'workflow':
-            self.program_type_combo.addItem(f"{tr('流程编排')}（{tr(UNSUPPORTED_TASK)}）", userData='workflow')
-        self.program_type_combo.addItem(tr('外部程序'), userData='external')
+        for program_key, label in [('self', tr('本体')), ('workflow', tr('流程编排')), ('external', tr('外部程序'))]:
+            self.program_type_combo.addItem(label, userData=program_key)
         for sp in SPECIAL_PROGRAMS:
             self.program_type_combo.addItem(tr(sp.get('display_name')), userData=sp.get('key'))
 
@@ -168,7 +164,7 @@ class AddEditScheduleDialog(MessageBox):
         self.args_combo = ComboBox(self)
         # 显示本地化任务名，但保存时保留对应的任务ID（TASK_NAMES 存的是中文原文）
         # 保持 TASK_NAMES 的原始顺序（插入顺序）
-        task_items = list(supported_tasks(cfg).items())
+        task_items = list(TASK_NAMES.items())
         self._task_keys = [k for k, v in task_items]
         self._task_labels = [tr(v) for k, v in task_items]
         self.args_combo.addItems(self._task_labels)
@@ -610,9 +606,8 @@ class AddEditScheduleDialog(MessageBox):
                     idx = self._task_labels.index(args_key)
                 except ValueError:
                     self._task_keys.append(args_key)
-                    label = f"{tr(TASK_NAMES.get(args_key, str(args_key)))}（{tr(UNSUPPORTED_TASK)}）"
-                    self._task_labels.append(label)
-                    self.args_combo.addItem(label)
+                    self._task_labels.append(str(args_key))
+                    self.args_combo.addItem(str(args_key))
                     idx = len(self._task_keys) - 1
             self.args_combo.setCurrentIndex(idx)
         elif isinstance(prog, str) and prog.strip().lower() == 'workflow':

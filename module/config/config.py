@@ -115,6 +115,7 @@ def _is_retryable_io_error(e):
 # 环境变量值为 "true"/"1" 时为 True，"false"/"0" 时为 False
 _ENV_OVERRIDE_MAP = {
     "MARCH7TH_CLOUD_GAME_ENABLE": ("cloud_game_enable", lambda v: v.lower() in ("true", "1")),
+    "MARCH7TH_PLAYCOVER_ENABLE": ("playcover_enable", lambda v: v.lower() in ("true", "1")),
     "MARCH7TH_CLOUD_GAME_USE_PAID_TIME": ("cloud_game_use_paid_time", lambda v: v.lower() in ("true", "1")),
     "MARCH7TH_BROWSER_HEADLESS_ENABLE": ("browser_headless_enable", lambda v: v.lower() in ("true", "1")),
     "MARCH7TH_BROWSER_HEADLESS_RESTART_ON_NOT_LOGGED_IN": ("browser_headless_restart_on_not_logged_in", lambda v: v.lower() in ("true", "1")),
@@ -128,7 +129,6 @@ _ENV_OVERRIDE_MAP = {
 # 反向映射：配置键 -> 环境变量名
 _CONFIG_KEY_TO_ENV = {v[0]: k for k, v in _ENV_OVERRIDE_MAP.items()}
 
-# 分身使用本地前台输入，避免改动同一账户共享的画质和启动器状态。
 _DESKTOP_TWIN_OVERRIDES = {
     "control_backend": "local",
     "cloud_game_enable": False,
@@ -276,10 +276,6 @@ class Config(metaclass=SingletonMeta):
             self._handle_broken_config(path, detail)
             return
 
-        # 旧体力循环统一转为定时模式；缺失的定时时间沿用模板默认值。
-        if loaded_config.get("loop_mode") == "power":
-            loaded_config["loop_mode"] = "scheduled"
-            _diag("info", "体力循环模式已移除，自动切换为定时模式")
         self._update_config(self.config, loaded_config)
         _diag("debug", f"_load_config 成功: 合并 {len(loaded_config)} 个顶层键")
         if save:
@@ -511,15 +507,14 @@ class Config(metaclass=SingletonMeta):
 
     def get_value(self, key, default=None):
         """获取配置项的值，环境变量优先，如果值是可变对象，则返回其拷贝"""
-        if key == "cloud_game_enable":
-            # 兼容仍读取旧开关的任务和 GUI，保留 YAML 中的原值。
-            backend = self.get_value("control_backend")
-            if backend is not None:
-                return backend == "cloud"
         # 先检查环境变量覆盖
         has_override, override_value = _get_env_override(key)
         if has_override:
             return override_value
+        if key == "cloud_game_enable":
+            backend = self.get_value("control_backend")
+            if backend is not None:
+                return backend == "cloud"
         value = self.config.get(key, default)
         # 如果是可变对象（如列表、字典等），返回拷贝
         if isinstance(value, (list, dict, set)):

@@ -9,7 +9,7 @@ class WinotifyNotifier(Notifier):
         toast = Notification(app_id="March7thAssistant",
                              title=title,
                              msg=content,
-                             icon=os.path.join(os.getcwd(), "assets", "screenshot", "March7th.png"),
+                             icon=os.path.join(os.getcwd(), "assets", "app", "images", "March7th.jpg"),
                              duration="short")
         toast.set_audio(audio.Mail, loop=False)
         toast.show()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
+import sys
 
 import markdown
 from PySide6.QtCore import Qt, QCoreApplication, QThread, QUrl, Signal, Slot
@@ -162,9 +163,9 @@ class UpdateThread(QThread):
 
 def checkUpdate(self, timeout: int = 5, flag: bool = False, silent: bool = False):
     """检查更新，并根据更新状态显示不同的信息或执行更新操作。"""
-    from utils.desktop_twin import in_desktop_twin
 
-    if in_desktop_twin() and (flag or silent):
+    # 关闭检查更新时 启动和开始任务时的自动检查直接跳过 不再联网（macOS 移植版不能用上游 Windows 更新包覆盖）
+    if (flag or silent) and not cfg.check_update:
         return
 
     suppress_feedback = silent or (flag and not cfg.check_update)
@@ -228,6 +229,10 @@ def checkUpdate(self, timeout: int = 5, flag: bool = False, silent: bool = False
             notes_thread.start()
 
             def handle_github_click():
+                if sys.platform == "darwin" and update_thread.html_url:
+                    QDesktopServices.openUrl(QUrl(update_thread.html_url))
+                    message_box.reject()
+                    return
                 open_update_window(
                     update_thread.github_assert_url,
                     update_thread.github_assert_name,

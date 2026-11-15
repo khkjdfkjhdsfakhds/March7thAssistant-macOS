@@ -4,9 +4,6 @@ from module.automation import auto
 from module.logger import log
 from module.notification.notification import NotificationLevel
 from tasks.base.base import Base
-from tasks.base.list_drag import drag_list
-from tasks.power.policy import normalize
-import re
 import time
 
 
@@ -32,8 +29,6 @@ class Synthesis:
                                 auto.click_element("./assets/images/share/synthesis/nuclear.png", "image", 0.85, max_retries=10)
                                 time.sleep(2)
                                 if auto.find_element("./assets/images/share/synthesis/nuclear_selected.png", "image", 0.85, max_retries=10):
-                                    if not Synthesis._verify_training_recipe():
-                                        return False
                                     if auto.click_element("./assets/images/zh_CN/synthesis/synthesis_button.png", "image", 0.9, max_retries=10):
                                         time.sleep(2)
                                         if auto.click_element("./assets/images/zh_CN/base/confirm.png", "image", 0.9, max_retries=10):
@@ -47,24 +42,6 @@ class Synthesis:
             except Exception as e:
                 log.error(f"合成材料失败: {e}")
         return False
-
-    @staticmethod
-    def _verify_training_recipe():
-        if not auto.find_element("微光原核", "text", crop=(0.49, 0.08, 0.43, 0.16), max_retries=4, retry_delay=0.3):
-            log.error("未确认微光原核配方")
-            return False
-        auto.take_screenshot(crop=(0.51, 0.63, 0.41, 0.23))
-        auto.perform_ocr()
-        text = normalize(" ".join(line[1][0] for line in auto.ocr_result))
-        amount = re.search(r"合成数量[:：]?(\d+)", text)
-        materials = re.search(r"(\d+)/3(?!\d)", text)
-        if not amount or int(amount[1]) != 1 or not materials:
-            log.error("未确认合成数量为 1 且只消耗 3 个熄灭原核")
-            return False
-        if int(materials[1]) < 3:
-            log.info("熄灭原核库存不足，跳过实训合成")
-            return False
-        return True
 
     @staticmethod
     def self_molding_resin():
@@ -87,10 +64,6 @@ class Synthesis:
                                     log.info("自塑尘脂已达上限，无需合成")
                                     cfg.save_timestamp("asset_self_molding_resin_timestamp")
                                     return True
-                                if auto.find_element("合成所需材料不足", "text",
-                                                     crop=(0.45, 0.72, 0.40, 0.16), include=True):
-                                    log.warning("自塑尘脂合成材料不足，保留本月任务，下次运行重试")
-                                    return False
                                 if auto.click_element("./assets/images/share/synthesis/plus.png", "image", 0.9, crop=(1520 / 1920, 832 / 1080, 86 / 1920, 69 / 1080)):
                                     time.sleep(2)
                                 if auto.click_element("./assets/images/zh_CN/synthesis/synthesis_button.png", "image", 0.9, max_retries=10):
@@ -286,22 +259,22 @@ class Synthesis:
                                                 auto.press_key("esc", wait_time=3)
                                                 if not is_superimposed:
                                                     log.info("没有进行叠加")
-                                                    if not drag_list(auto, (1280 / 1920, 810 / 1080), (1280 / 1920, 650 / 1080),
-                                                                     crop=(140 / 1920, 150 / 1080, 1110 / 1920, 760 / 1080), duration=1.0):
-                                                        return False
+                                                    auto.click_element_with_pos(t)
+                                                    auto.mouse_scroll(
+                                                        5, direction=-1, pause=True
+                                                    )
                                                 log.info("3星光锥叠加完成，继续查找")
                                                 break
                                         else:
                                             time.sleep(2)
                                             auto.press_key("esc", wait_time=3)
-                                            if not drag_list(auto, (1280 / 1920, 810 / 1080), (1280 / 1920, 650 / 1080),
-                                                             crop=(140 / 1920, 150 / 1080, 1110 / 1920, 760 / 1080), duration=1.0):
-                                                return False
+                                            auto.click_element_with_pos(t)
+                                            auto.mouse_scroll(
+                                                5, direction=-1, pause=True
+                                            )
 
                         if not find_target:
-                            if not drag_list(auto, (1280 / 1920, 810 / 1080), (1280 / 1920, 410 / 1080),
-                                             crop=(140 / 1920, 150 / 1080, 1110 / 1920, 760 / 1080), duration=1.0):
-                                return False
+                            auto.mouse_scroll(25, direction=-1, pause=True)
                             not_find_times += 1
                         else:
                             not_find_times = 0

@@ -78,12 +78,12 @@ class UiIcon(FluentIconBase, Enum):
     HISTORY = "history"
     LINK = "link"
     TAP = "tap-single"
-    PHONE = "phone"
     PERSON = "person"
     STAR = "star"
     IMPORT = "arrow-import"
     EXPORT = "arrow-export"
     SELECT_ALL = "select-all-on"
+    TERMINAL = "terminal"
 
     def path(self, theme=Theme.AUTO):
         return f"./assets/app/images/icons/ui/{self.value}_{getIconColor(theme)}.svg"

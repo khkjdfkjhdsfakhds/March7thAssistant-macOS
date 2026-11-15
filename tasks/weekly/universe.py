@@ -1,7 +1,5 @@
 from module.screen import screen
 from module.config import cfg
-from module.game import cloud_game, require_desktop_task
-from module.localization import tr
 from module.logger import log
 from module.automation import auto
 from module.notification.notification import NotificationLevel
@@ -113,7 +111,6 @@ class Universe:
 
     @staticmethod
     def before_start():
-        require_desktop_task(cfg, tr("模拟宇宙"))
         Universe.check_path()
         if cfg.universe_operation_mode == "source":
             PythonChecker.run()
@@ -205,7 +202,7 @@ class Universe:
             log.warning("模拟宇宙功能仅支持 Windows 平台")
             return False
 
-        if cfg.cloud_game_enable and cloud_game.is_headless():
+        if cfg.cloud_game_enable and cfg.browser_headless_enable:
             log.error("模拟宇宙不支持无界面模式运行")
             return False
 

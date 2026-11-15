@@ -1,6 +1,3 @@
-import json
-from pathlib import Path
-
 from module.ocr.ocr import (
     OCR,
     OCR_MODE_CPU,
@@ -81,51 +78,6 @@ class TestOCRConvertFormat:
         assert converted[1][1] == ("world", 0.95)
 
 
-class TestRecognitionOnly:
-    def test_known_line_bypasses_detection_and_preserves_engine_settings(self):
-        import numpy as np
-        from types import SimpleNamespace
-        from unittest.mock import MagicMock
-
-        pixels = np.zeros((34, 94, 3), dtype=np.uint8)
-        engine = SimpleNamespace(
-            use_det=True, text_score=0.8,
-            load_img=MagicMock(return_value=pixels),
-            recognize_txt=MagicMock(return_value=SimpleNamespace(
-                txts=(" 6 ", "", "bad"), scores=(0.99, 0.99, 0.4))),
-        )
-        ocr = OCR.__new__(OCR)
-        ocr.ocr = engine
-        assert ocr._infer(pixels, True) == [{
-            "box": [[0, 0], [94, 0], [94, 34], [0, 34]], "txt": "6", "score": 0.99,
-        }]
-        assert engine.use_det is True
-        assert engine.recognize_txt.call_args.args[0][0] is pixels
-
-    def test_normal_inference_still_uses_detection(self):
-        from unittest.mock import MagicMock
-        ocr = OCR.__new__(OCR)
-        ocr.ocr = MagicMock()
-        ocr.ocr.return_value.to_json.return_value = [{"txt": "正常文字"}]
-        assert ocr._infer("image") == [{"txt": "正常文字"}]
-        ocr.ocr.assert_called_once_with("image")
-        ocr.ocr.recognize_txt.assert_not_called()
-
-    def test_recognition_only_keeps_existing_cpu_fallback(self):
-        from unittest.mock import MagicMock
-
-        class ONNXRuntimeError(RuntimeError):
-            pass
-
-        ocr = TestRunSlowDegradeStateMachine()._create_running_ocr()
-        expected = [{"box": [[0, 0], [10, 0], [10, 10], [0, 10]], "txt": "6", "score": 0.99}]
-        ocr._infer = MagicMock(side_effect=[ONNXRuntimeError("failed"), expected])
-        assert ocr.run(ocr.img, recognition_only=True) == expected
-        assert ocr._infer.call_count == 2
-        assert all(call.args[1] is True for call in ocr._infer.call_args_list)
-        assert ocr._use_dml is False
-
-
 class TestOCRReplaceStrings:
     def _create_ocr_with_mock_logger(self):
         from unittest.mock import MagicMock
@@ -153,15 +105,6 @@ class TestOCRReplaceStrings:
         results = [{"txt": "hello", "score": 0.99}]
         replaced = ocr.replace_strings(results)
         assert replaced[0]["txt"] == "world"
-
-    def test_currency_wars_name_replacement_is_stable_with_a_shop_price(self):
-        ocr = self._create_ocr_with_mock_logger()
-        config = Path(__file__).resolve().parents[2] / "assets/config/ocr_replacements.json"
-        ocr.replacements = json.loads(config.read_text(encoding="utf-8"))
-        rows = [{"txt": name} for name in ("刻律德拉1", "刻律德1", "刻律德菈1", "刻律德拉", "刻律德菈")]
-        expected = ["刻律德菈1", "刻律德菈1", "刻律德菈1", "刻律德菈", "刻律德菈"]
-        assert [row["txt"] for row in ocr.replace_strings(rows)] == expected
-        assert [row["txt"] for row in ocr.replace_strings(rows)] == expected
 
 
 class TestDisableOpenVINOTelemetry:

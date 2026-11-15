@@ -1,160 +1,96 @@
-<div align="center">
-  <h1 align="center">
-    <img src="./assets/screenshot/March7th.png" width="200">
-    <br/>
-    March7thAssistant
-  </h1>
-  <a href="https://trendshift.io/repositories/3892" target="_blank"><img src="https://trendshift.io/api/badge/repositories/3892" alt="moesnow%2FMarch7thAssistant | Trendshift" style="width: 200px; height: 46px;" width="250" height="46"/></a>
-</div>
+# 三月七小助手 macOS 实验性预览版 (March7thAssistant-macOS · Preview)
 
-<br/>
+> [!WARNING]
+> **非官方移植与实验性预览声明（Unofficial Port · Experimental Preview）**
+>
+> 本仓库是 [moesnow/March7thAssistant](https://github.com/moesnow/March7thAssistant) 的 **非官方第三方 macOS（Apple Silicon）实验性预览移植版**，与原版作者及官方团队无关联，目前仍处于 **Preview / 实验阶段**，接口、打包形态与功能行为可能继续调整。
+>
+> **请勿将任何 macOS / PlayCover / 打包相关的 Issue 或崩溃反馈提交至原版仓库 [moesnow/March7thAssistant](https://github.com/moesnow/March7thAssistant)**；相关问题请仅在本仓库反馈。
 
-<div align="center">
-🌟 点一下右上角的 Star，GitHub 主页就能收到软件更新通知了哦~
-</div>
-
-<div align="center">
-    <img src="assets/screenshot/star.gif" alt="Star" width="186" height="60">
-</div>
-
-<br/>
-
-<div align="center">
-
-**简体中文** | [繁體中文](./README_TW.md) | [English](./README_EN.md) | [日本語](./README_JA.md) | [한국어](./README_KR.md)
-
-快速上手，请访问：[使用教程](https://m7a.top/docs/#/assets/docs/Tutorial)
-
-遇到问题，请在提问前查看：[FAQ](https://m7a.top/docs/#/assets/docs/FAQ)
-
-</div>
-
-## 功能简介
-
-- **日常**：清体力、每日实训、领取奖励、委托、锄大地
-- **周常**：历战余响、模拟宇宙、差分宇宙、货币战争、混沌回忆、虚构叙事、末日幻影
-- **云·星穹铁道**：支持后台运行、无窗口运行和 [Docker](https://m7a.top/docs/#/assets/docs/Docker) 运行
-- **抽卡记录导出**：支持 [UIGF](https://uigf.org/zh/standards/uigf.html)/[SRGF](https://uigf.org/zh/standards/srgf.html) 标准
-- **工具箱**：自动对话、解锁帧率、兑换码、触屏模式
-- 每日实训等任务的完成情况支持**消息推送**
-- 任务刷新或体力恢复到指定值后**自动启动**
-- 任务完成后**声音提示、自动关闭游戏或关机等**
-
-详情见图形界面设置或 [配置文件](assets/config/config.example.yaml)｜QQ群 [点击跳转](https://qm.qq.com/q/C3IryUWCQw)｜TG群 [点击跳转](https://t.me/+ZgH5zpvFS8o0NGI1)｜哔哩哔哩 [点击跳转](https://space.bilibili.com/3706960664857075)
-
-## 界面展示
-
-![README](assets/screenshot/README.png)
-
-## 注意事项
-
-- 遇到错误请在 [Issue](https://github.com/moesnow/March7thAssistant/issues) 反馈，提问讨论可以在 [Discussions](https://github.com/moesnow/March7thAssistant/discussions) ，群聊随缘看
-- 欢迎 [PR](https://github.com/moesnow/March7thAssistant/pulls)，提交前请先阅读 [贡献指南](CONTRIBUTING.md)
-
-## 下载安装
-
-前往 [Releases](https://github.com/moesnow/March7thAssistant/releases/latest) 下载后解压双击三月七图标的 `March7th Launcher.exe` 打开图形界面
-
-## 使用 AI 助手操作
-
-DeepSeek Harness、Codex、Claude Code 等能执行命令的 AI 助手都可以直接操作三月七小助手：安装、运行任务、修改设置、查看日志和排查问题。
-
-- 已经安装：在「设置 → 关于 → AI 助手」点击「复制提示词」，粘贴给你的 AI 助手即可
-- 还没安装：对 AI 助手说「帮我安装三月七小助手，说明见 https://m7a.top/assets/agent/skills/march7th-assistant/SKILL.md 」
-
-AI 助手使用的是不需要管理员权限的命令行入口 `m7a.exe`（运行任务时默认弹出一次 UAC，人不在电脑前时可在设置中开启「免 UAC 运行」），说明文件随程序一起发布在 [`assets/agent/`](assets/agent/skills/march7th-assistant/SKILL.md)，同样适用于其他支持 Skill 的 AI 助手。详见 [AI 助手文档](https://m7a.top/docs/#/assets/docs/Agent)。
-
-## 源码运行
-
-如果你是完全不懂的小白，请通过上面的方式下载安装，可以不用往下看了。
-
-需要 Python 3.12 或更高版本。
-
-Windows 下如果通过终端启动，建议使用管理员模式打开 PowerShell、Windows Terminal 或 CMD；Windows 11 24H2 及以上也可以按 [Sudo for Windows](https://learn.microsoft.com/zh-cn/windows/advanced-settings/sudo/) 的方式执行。
-
-```cmd
-# 安装（推荐使用虚拟环境）
-git clone --recurse-submodules https://github.com/moesnow/March7thAssistant
-cd March7thAssistant
-pip install -r requirements.txt
-
-# 启动图形界面
-python app.py
-
-# 执行完整运行（查看全部子命令：python main.py -h）
-python main.py
-
-# 更新
-git pull
-git submodule update --init --recursive
-```
-
-如果使用 `uv`，推荐直接使用项目自带的 `pyproject.toml` 工作流：
-
-```cmd
-# 安装（使用 uv）
-git clone --recurse-submodules https://github.com/moesnow/March7thAssistant
-cd March7thAssistant
-uv sync
-
-# 启动图形界面
-uv run python app.py
-
-# 查看命令行帮助
-uv run python main.py -h
-
-# 执行完整运行
-uv run python main.py
-
-# 执行每日实训
-uv run python main.py daily
-```
-
-<details>
-<summary>开发相关</summary>
-
-获取 crop 参数表示的裁剪坐标，可以通过小助手工具箱内「游戏截图」卡片的「捕获」功能
-
-</details>
+面向 Apple Silicon（arm64）Mac 的开箱即用独立应用包，配合 **PlayCover** 运行《崩坏：星穹铁道》iOS 版，支持基于 `hguandl/PlayCover` (`MaaTools:1717`) 的纯后台自动化执行与原生 macOS 界面体验。
 
 ---
 
-如果喜欢本项目，可以微信赞赏送作者一杯咖啡☕
+## 1. 下载安装与首次打开
 
-您的支持就是作者开发和维护项目的动力🚀
+1. 前往本仓库 [Releases (Pre-release)](https://github.com/khkjdfkjhdsfakhds/March7thAssistant-macOS/releases) 下载 **`March7thAssistant-macOS-v2026.11.15-arm64.dmg`**（及 `SHA256SUMS.txt` 校验）。
+2. 双击挂载 DMG 后，将 **`三月七小助手.app`** 拖入 **`/Applications`**（应用程序）。
+3. **本应用包完全独立（Self-Contained）**：内置精简 Apple Silicon `Python 3.12`、`PySide6`、`PyObjC`、`RapidOCR` 及所有动态库，**无需本机安装 Homebrew 或 Python**。
+4. 由于预览版暂未经过 Apple Developer 公证（仅带 Ad-hoc 签名），首次打开若出现“已损坏”或“无法验证开发者”提示，请在终端执行一次隔离属性清理后重新打开：
 
-![sponsor](assets/app/images/sponsor.jpg)
+```bash
+xattr -cr "/Applications/三月七小助手.app"
+open "/Applications/三月七小助手.app"
+```
 
 ---
 
-## 相关项目
+## 2. macOS 原生界面亮点（Preview）
 
-March7thAssistant 离不开以下开源项目和运行时依赖的帮助，感谢所有维护者与贡献者：
+- **标准 macOS 窗口样式**：采用全高通顶毛玻璃侧边栏、左上角标准红绿灯控制按钮，以及安全的顶部间距与圆角横幅卡片布局。
+- **单排清晰导航与卡片适配**：优化深浅色模式自适应对比度、工具栏对齐与卡片密度。
+- **原生菜单栏与快捷键**：支持 `Cmd+,` 打开设置、`Cmd+W` 隐藏窗口、Dock 图标点击恢复主界面。
 
-- 模拟宇宙自动化 [https://github.com/CHNZYX/Auto_Simulated_Universe](https://github.com/CHNZYX/Auto_Simulated_Universe) ：提供模拟宇宙相关能力
-- 锄大地自动化 [https://github.com/linruowuyin/Fhoe-Rail](https://github.com/linruowuyin/Fhoe-Rail) ：提供锄大地相关能力
-- OCR 文字识别 [https://github.com/RapidAI/RapidOCR](https://github.com/RapidAI/RapidOCR) ：提供游戏内文字识别能力
-- 图形界面组件库 [https://github.com/zhiyiYo/PyQt-Fluent-Widgets](https://github.com/zhiyiYo/PyQt-Fluent-Widgets) ：提供主要界面组件与交互体验
-- Mirror酱 [https://github.com/MirrorChyan/docs](https://github.com/MirrorChyan/docs) ：提供更新检查与下载分发以及 CDN 加速相关能力
-- 图像处理与自动化相关依赖 `OpenCV`、`PyAutoGUI` 等：提供截图采集、图像处理与基础自动化能力
-- 推理加速相关依赖 `ONNX Runtime`、`OpenVINO` ：为 OCR 和模型推理提供 CPU / GPU 加速支持
+---
 
-此外，`requirements.txt` 中还包含大量底层依赖，在这里不一一列出；同样感谢这些项目对本项目的支持。
+## 3. 双传输后端（PlayCover）
 
+| 传输模式 | 依赖版本 | 特性 | 是否需要 macOS TCC 权限 |
+| --- | --- | --- | --- |
+| **`maatools`（默认推荐）** | [hguandl/PlayCover](https://github.com/hguandl/PlayCover)（`MaaTools:1717`） | **纯后台运行**：不抢占前台窗口焦点、不移动系统鼠标指针 | 一般无需辅助功能指针注入；截图失败时可按需补充屏幕录制或改用 `cg` |
+| **`cg`** | 官方版 PlayCover / 通用 macOS 窗口 | `ScreenCaptureKit` / `CGWindowListCreateImage` 截图 + `CGEvent` 后台键鼠投递 | 需要授权 **屏幕录制（Screen Recording）** 与 **辅助功能（Accessibility）** |
 
-## Contributors
-<a href="https://github.com/moesnow/March7thAssistant/graphs/contributors">
+在应用设置或 `config.yaml` 中可通过 `playcover_transport: auto`（优先尝试 `maatools:1717`，不可用时按配置回退）切换模式；首次运行前请先阅读并同意应用内的首次使用免责声明。
 
-  <img src="https://contrib.rocks/image?repo=moesnow/March7thAssistant" />
+---
 
-</a>
+## 4. 用户数据目录
 
-## Stargazers over time
+macOS 独立应用版（`.app` Bundle 只读不可自改写）将配置、运行日志、OCR/运行时缓存统一保存在：
 
-<a href="https://star-history.dera.page/#moesnow/March7thAssistant">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=moesnow/March7thAssistant&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=moesnow/March7thAssistant" />
-   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=moesnow/March7thAssistant" />
- </picture>
-</a>
+```text
+~/Library/Application Support/March7thAssistant/
+├── config.yaml
+└── logs/
+```
+
+---
+
+## 5. 命令行与从源码构建
+
+### 命令行入口
+
+```bash
+# 查看当前状态、版本与配置文件位置
+./m7a --status
+
+# 执行自动化任务（示例：货币战争且完成后不关闭游戏）
+./m7a currencywars --after-finish None
+```
+
+### 从源码构建 `.app` 与 `.dmg`
+
+在已完成依赖初始化（`.venv` 就绪）的 Apple Silicon macOS 环境中：
+
+```bash
+# 构建独立 Apple Silicon 应用并安装到 /Applications/三月七小助手.app
+bash tools/macos/make_app.sh
+
+# 打包发布用压缩 DMG 与 SHA256SUMS.txt
+bash tools/macos/make_dmg.sh
+```
+
+详细原理、双通道细节、权限排查与构建审计清单请参阅 [README_MACOS.md](README_MACOS.md)。
+
+---
+
+## 6. 相关文档与许可
+
+- macOS 移植详细说明：[README_MACOS.md](README_MACOS.md)
+- 上游原版完整文档（Windows 端原版功能说明）：[README_UPSTREAM.md](README_UPSTREAM.md)
+- 开源许可证：遵循上游 [GPL-3.0 License](LICENSE)
+
+### 致谢
+
+- 原版项目与核心功能实现：[moesnow/March7thAssistant](https://github.com/moesnow/March7thAssistant)
+- PlayCover 后台自动化协议支持：[hguandl/PlayCover](https://github.com/hguandl/PlayCover)
