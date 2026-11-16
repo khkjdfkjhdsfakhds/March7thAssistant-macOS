@@ -117,7 +117,7 @@ class PlayCoverGameController(GameControllerBase):
                 return False
         return False
 
-    def start_game_process(self) -> bool:
+    def start_game_process(self, *, background: bool | None = None) -> bool:
         self.reload_config()
         if not os.path.exists(self.app_path):
             self.log_error(f"未找到 PlayCover 游戏：{self.app_path}")
@@ -125,7 +125,8 @@ class PlayCoverGameController(GameControllerBase):
         if self.is_game_running():
             return True
         mode = self.transport_mode
-        open_flag = "-g" if mode == "maatools" else "-a"
+        use_bg = (mode in ("auto", "maatools")) if background is None else bool(background)
+        open_flag = "-g" if use_bg else "-a"
         result = subprocess.run(["open", open_flag, self.app_path], capture_output=True, text=True)
         if result.returncode != 0:
             self.log_error(f"启动游戏失败：{result.stderr.strip()}")

@@ -18,7 +18,19 @@ from tasks.weekly.weekly_reward import wait_for_weekly_reward
 
 class Universe:
     @staticmethod
+    def _guard_non_windows(action: str) -> bool:
+        if sys.platform != 'win32':
+            log.warning(
+                f"当前环境（{sys.platform}）不支持传统「模拟宇宙」{action}（仅支持 Windows），"
+                "macOS 请改用内置「差分宇宙」（m7a divergent / divergentloop）。"
+            )
+            return True
+        return False
+
+    @staticmethod
     def update():
+        if Universe._guard_non_windows("更新"):
+            return False
         from module.update.update_handler import UpdateHandler
         from tasks.base.fastest_mirror import FastestMirror
         if cfg.universe_operation_mode == "exe":
@@ -86,6 +98,8 @@ class Universe:
 
     @staticmethod
     def check_path():
+        if Universe._guard_non_windows("路径检查"):
+            return False
         status = False
         if cfg.universe_operation_mode == "exe":
             if not os.path.exists(os.path.join(cfg.universe_path, "diver.exe")):
@@ -99,6 +113,8 @@ class Universe:
 
     @staticmethod
     def check_requirements():
+        if Universe._guard_non_windows("运行环境检查"):
+            return False
         if not cfg.universe_requirements:
             log.info("开始安装依赖")
             from tasks.base.fastest_mirror import FastestMirror
@@ -111,6 +127,8 @@ class Universe:
 
     @staticmethod
     def before_start():
+        if Universe._guard_non_windows("启动准备"):
+            return False
         Universe.check_path()
         if cfg.universe_operation_mode == "source":
             PythonChecker.run()
@@ -198,8 +216,7 @@ class Universe:
     def start(nums=cfg.universe_count, save=True, category=cfg.universe_category):
         log.hr("准备模拟宇宙", 0)
 
-        if sys.platform != 'win32':
-            log.warning("模拟宇宙功能仅支持 Windows 平台")
+        if Universe._guard_non_windows("运行"):
             return False
 
         if cfg.cloud_game_enable and cfg.browser_headless_enable:
@@ -294,6 +311,8 @@ class Universe:
 
     @staticmethod
     def gui():
+        if Universe._guard_non_windows("打开原版 GUI"):
+            return False
         if Universe.before_start():
             if subprocess.run(["start", "gui.exe"], shell=True, check=True, cwd=cfg.universe_path, env=cfg.env):
                 return True

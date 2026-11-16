@@ -15,11 +15,19 @@ class StarRailController(LocalGameController):
         super().__init__(cfg=cfg, logger=logger)
         self.game_resolution = None
         self.game_auto_hdr = None
-        import pyautogui
-        self.screen_resolution = pyautogui.size()
+        if sys.platform == 'win32':
+            try:
+                import pyautogui
+                self.screen_resolution = pyautogui.size()
+            except Exception:
+                self.screen_resolution = (1920, 1080)
+        else:
+            self.screen_resolution = (1920, 1080)
 
     def change_resolution(self, width: int, height: int):
         """通过注册表修改游戏分辨率"""
+        if sys.platform != 'win32':
+            return
         try:
             self.game_resolution = get_game_resolution()
             if self.game_resolution:
@@ -37,6 +45,8 @@ class StarRailController(LocalGameController):
 
     def restore_resolution(self):
         """通过注册表恢复游戏分辨率"""
+        if sys.platform != 'win32':
+            return
         try:
             if self.game_resolution:
                 set_game_resolution(self.game_resolution[0], self.game_resolution[1], self.game_resolution[2])
@@ -46,6 +56,8 @@ class StarRailController(LocalGameController):
 
     def change_auto_hdr(self, status: Literal["enable", "disable", "unset"] = "unset"):
         """通过注册表修改游戏自动 HDR 设置"""
+        if sys.platform != 'win32':
+            return
         status_map = {"enable": "启用", "disable": "禁用", "unset": "未设置"}
         try:
             self.game_auto_hdr = get_game_auto_hdr(self.game_path)
@@ -59,6 +71,8 @@ class StarRailController(LocalGameController):
 
     def restore_auto_hdr(self):
         """通过注册表恢复游戏自动 HDR 设置"""
+        if sys.platform != 'win32':
+            return
         status_map = {"enable": "启用", "disable": "禁用", "unset": "未设置"}
         try:
             if self.game_auto_hdr:
@@ -139,6 +153,8 @@ class StarRailController(LocalGameController):
             self.log_debug(f"桌面分辨率: {screen_width}x{screen_height}")
 
     def change_auto_battle(self, status: bool) -> None:
+        if sys.platform != 'win32':
+            return
         auto_battle_status = get_auto_battle_open_setting()
         if auto_battle_status is not None and auto_battle_status != status:
             set_auto_battle_open_setting(status)

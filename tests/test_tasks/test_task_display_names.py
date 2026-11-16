@@ -55,5 +55,5 @@ class TestTaskDisplayNames:
         root = pathlib.Path(__file__).resolve().parents[2]
         for name in ("main.py", "app.py"):
             source = (root / name).read_text(encoding="utf-8")
-            if "task_display_names()" not in source:
+            if "task_display_names(" not in source:
                 pytest.fail(f"{name} 的 --list 未使用 task_display_names()（会退回显示中文原文）")

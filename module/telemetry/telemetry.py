@@ -393,7 +393,7 @@ class Telemetry(metaclass=SingletonMeta):
         except Exception:
             pass
 
-    def track_startup(self):
+    def track_startup(self, _backend: str | None = None):
         props = dict(self._system_context)
         try:
             props["game_runtime"] = _resolve_game_runtime()

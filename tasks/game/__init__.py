@@ -22,15 +22,56 @@ from module.config.platform import ProfileAssetNotFoundError, TouchProfileInputE
 from module.notification import notif
 from module.notification.notification import NotificationLevel
 from tasks.base.base import Base
+from module.automation.background_input import InputInterrupted
 from module.ocr import ocr
 from module.localization import tr
 from utils.console import is_gui_started
+from utils.pause import pause_ctl
 from utils.wait import wait_until
 from utils.windows_power import task_power_request
 
 
 class GameClientOutdatedError(RuntimeError):
     """游戏客户端版本过低（供 except 类型判断，勿用文本匹配异常消息）。"""
+
+
+class GameStartupUnavailable(InputInterrupted):
+    """启动或接管时无法确认游戏可用，保留当前游戏现场。"""
+
+    reason = "game_startup_unavailable"
+    screenshot = None
+
+
+def prepare_currency_wars_takeover():
+    """让已有游戏进入可操作状态，保留游戏进程与对局。"""
+    pause_ctl.checkpoint()
+    backend = get_control_backend(cfg)
+    if backend == "playcover":
+        already_running = playcover_game.is_game_running()
+        playcover_game.start_game_process()
+        if not playcover_game.wait_ready(360):
+            raise GameStartupUnavailable("等待 PlayCover 游戏窗口或 MaaTools 就绪超时")
+        playcover_game.switch_to_game()
+        if not already_running:
+            from tasks.weekly.currency_wars import CurrencyWars
+
+            def _cold_takeover_ready():
+                pause_ctl.checkpoint()
+                try:
+                    return CurrencyWars.game_screen_ready() or bool(
+                        screen.get_current_screen(autotry=False, max_retries=1)
+                    )
+                except Exception as error:
+                    log.debug(f"PlayCover 冷启动接管等待画面：{error}")
+                    return False
+
+            if not wait_until(_cold_takeover_ready, 120):
+                raise GameStartupUnavailable("等待 PlayCover 游戏进入可识别画面超时，已保留当前现场")
+        pause_ctl.checkpoint()
+        return
+    if not switch_to_game():
+        raise GameStartupUnavailable("无法确认本地游戏窗口，已保留游戏现场")
+    pause_ctl.checkpoint()
 
 
 def start(headless=None, *, optimize_graphics=True, screen_ready=None):
@@ -43,11 +84,12 @@ def start(headless=None, *, optimize_graphics=True, screen_ready=None):
 def switch_to_game():
     log.hr("切换到游戏窗口", 0)
     if get_control_backend(cfg) in ("playcover", "cloud", "adb"):
-        get_game_controller().switch_to_game()
+        ok = bool(get_game_controller().switch_to_game())
     else:
         starrail = StarRailController(cfg=cfg, logger=log)
-        starrail.switch_to_game()
+        ok = bool(starrail.switch_to_game())
     log.hr("完成", 2)
+    return ok
 
 
 def ensure_game_ready():

@@ -13,8 +13,27 @@ from urllib.parse import quote, parse_qs, urljoin, urlsplit
 import requests
 
 from module.update.download_proxy import get_update_download_requests_proxies
-from module.update.version_check import GITHUB_API_BASES, _GITHUB_REPO
+from module.update.version_check import (
+    GITHUB_API_BASES,
+    _GITHUB_REPO,
+    get_github_api_bases,
+    get_github_repo,
+)
 from utils.version import Version
+
+
+_INITIAL_REPO = _GITHUB_REPO
+_INITIAL_BASES = GITHUB_API_BASES
+
+
+def _active_repo() -> str:
+    return _GITHUB_REPO if _GITHUB_REPO != _INITIAL_REPO else get_github_repo()
+
+
+def _active_bases() -> list[str]:
+    if GITHUB_API_BASES != _INITIAL_BASES or _active_repo() == _INITIAL_REPO:
+        return list(GITHUB_API_BASES)
+    return list(get_github_api_bases())
 
 
 _HIDDEN_BLOCK_RE = re.compile(r"<!--\s*m7a:hide\s*-->.*?<!--\s*/m7a:hide\s*-->", re.DOTALL)
@@ -47,7 +66,7 @@ def clean_release_body(body: str) -> str:
 
 
 def changelog_url(target_version: str) -> str:
-    return (f"https://github.com/{_GITHUB_REPO}/blob/"
+    return (f"https://github.com/{_active_repo()}/blob/"
             + quote(target_version, safe="") + "/assets/docs/Changelog.md")
 
 
@@ -94,7 +113,7 @@ def collect_update_notes(document: str, current_version: str, target_version: st
     if current >= target:
         raise ValueError("更新记录区间无效")
     parsed = parse_changelog(document)
-    if target not in parsed and not target.is_prerelease:
+    if target not in parsed and not target.is_prerelease and getattr(target, "_macos", None) is None:
         raise ValueError("累计更新日志未包含目标版本")
     target_note = clean_release_body(latest_note).strip()
     if not target_note and target in parsed:
@@ -119,10 +138,11 @@ def fetch_changelog(target_version: str, *, preferred_base: str = "", timeout: f
             _CACHE.move_to_end(target_version)
             return cached[1]
 
-    bases = list(GITHUB_API_BASES)
+    bases = _active_bases()
     if preferred_base in bases:
         bases.remove(preferred_base)
         bases.insert(0, preferred_base)
+    repo = _active_repo()
     deadline = time.monotonic() + max(0, min(timeout, 5))
     proxies = get_update_download_requests_proxies()
     last_error = None
@@ -151,7 +171,7 @@ def fetch_changelog(target_version: str, *, preferred_base: str = "", timeout: f
                         redirected = urljoin(url, response.headers.get("Location", ""))
                         parts = urlsplit(redirected)
                         if (parts.scheme != "https" or parts.netloc != "api.github.com"
-                                or parts.path != f"/repos/{_GITHUB_REPO}/contents/assets/docs/Changelog.md"
+                                or parts.path != f"/repos/{repo}/contents/assets/docs/Changelog.md"
                                 or parse_qs(parts.query).get("ref") != [target_version]):
                             raise ValueError("历史更新记录重定向丢失目标版本或地址无效")
                         url, params = redirected, None
@@ -174,7 +194,7 @@ def fetch_changelog(target_version: str, *, preferred_base: str = "", timeout: f
                     parsed = parse_changelog(document)
                     target = Version(target_version, strict=True)
                     if (not parsed or any(version > target for version in parsed)
-                            or (target not in parsed and not target.is_prerelease)):
+                            or (target not in parsed and not target.is_prerelease and getattr(target, "_macos", None) is None)):
                         raise ValueError("累计更新日志与目标版本不一致")
                     if cancelled():
                         raise ChangelogCancelled()

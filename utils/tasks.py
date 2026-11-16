@@ -46,7 +46,13 @@ CLI_ONLY_TASKS = {"adb_check": "ADB 自检"}
 
 TOUCH_ROUTINE_TASKS = frozenset({"main", "routine", "daily", "power", "screen_test", "game"})
 HOST_TASKS = frozenset({"app_update", "notify"})
-WINDOWS_ONLY_TASKS = frozenset({"game_update", "game_pre_download"})
+WINDOWS_ONLY_TASKS = frozenset({
+    "game_update",
+    "game_pre_download",
+    "universe",
+    "universe_gui",
+    "universe_update",
+})
 UNSUPPORTED_TASK = "当前后端不支持，未执行"
 
 

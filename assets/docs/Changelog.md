@@ -1,25 +1,142 @@
 # 更新日志
 
+## v2026.11.17
+
+开拓者开拓者！还记得上次本姑娘带来的那些新玩意儿吗？嘿嘿，本来还想好好庆祝一下呢，结果……怎么刚出发就冒出来这么多捣乱的家伙啊！哼，看来本姑娘的冒险还远远没有结束！
+
+先说说手机里的事吧！这次本姑娘把 **Shizuku 安装包**也准备好啦！还有那些让部分 Root 设备启动不了、游戏退出后小助手却傻乎乎地卡在原地、偶尔认不出手机菜单的问题，也都好好修理了一番。呼～没想到钻进手机里冒险，还真有不少学问呢！
+
+至于**货币战争 S2「入画奇航」**嘛……听说小克拉拉在「机心巧匠」的弹窗里卡住了，怎么都没办法继续前进？咦？等等……原来是本姑娘漏掉了这个特殊机制！呜哇，对不起啦克拉拉！现在已经好好适配啦，新赛季里其他几个不听话的小问题也一起解决了！还有清体力的时候，明明点了「开始挑战」，却站在原地一动不动……喂喂！这可不是摸鱼的时候啊！
+
+对啦！之前送给开拓者的**「桌面分身」**也有新进展哦！战斗检测的问题已经修好，连接失败时还能直接查看排查说明啦！就算遇到那个叫 RDP 516 的麻烦家伙，也能找到对应的解决步骤。嘿嘿，这次连迷路时的地图都准备好了！
+
+好啦好啦，虽然这次没有上回那么多惊天动地的新功能，但让小助手变得更可靠，也是本姑娘很重要的任务嘛！
+
+**毕竟，冒险可不只是出发时的热闹，还得平平安安地抵达终点才行呀！** 📸✨
+
+- 安卓版内置 Shizuku 安装包
+- 货币战争 S2 支持「机心巧匠改装」事件
+- 修复货币战争 S2 若干问题
+- 修复清体力点击「开始挑战」后偶尔未进入战斗的问题
+- 修复触屏模式特定情况下无法识别手机菜单的问题
+- 修复安卓版部分 Root 环境无法启动的问题
+- 修复安卓版启动任务时，接管的游戏退出后流程卡住的问题
+- 修复桌面分身中战斗检测未生效的问题 [#1359](https://github.com/moesnow/March7thAssistant/pull/1359) @cklsit
+- 桌面分身连接失败时可打开排查说明，遇到 RDP 516 会定位到对应步骤
+- 优化性能和稳定性并修复若干已知问题
+- [欢迎关注我们的B站账号，获取最新动态和教程](https://space.bilibili.com/3706960664857075)
+
+## v2026.11.15
+
+开拓者开拓者！快看这边！本姑娘这次可是带来了超级——多的惊喜！✨
+
+首先，猜猜本姑娘最近跑到哪里去了？嘿嘿，答案是……**手机里！** 没错，小助手终于有安卓版啦！只要准备好 Shizuku 或 Root，就能在后台帮你完成日常、清清体力！就算更习惯用电脑也没关系，桌面版现在也能通过 ADB 连接手机和模拟器啦。怎么样，是不是很厉害？快夸夸本姑娘！
+
+还有还有！**货币战争 S2「入画奇航」**也已经准备就绪！这次本姑娘还带来了全新的「连击那刻夏」策略。魔↗术↘技↗巧↘ 新赛季当然要有新花样嘛！哼哼，可别小看本姑娘的准备工作哦！
+
+至于经常用电脑的开拓者嘛……本姑娘知道啦！总不能每次挂机，都让游戏霸占着桌面吧？所以这次还准备了一个秘密武器——**「桌面分身」！** 让游戏在独立的 Windows 桌面里运行，你就可以继续忙自己的事情啦！是不是很贴心？嘿嘿，快去工具箱里找找看吧！
+
+当然啦，这次还修好了不少偷偷捣乱的小问题，也添上了防止设备睡着、任务期间降低画质之类的实用功能。呼～一口气说了这么多，本姑娘都快喘不过气啦！
+
+剩下的详细更新，还有各位热心开拓者帮忙完成的改进，都好好记在下面啦！
+
+**好啦！新版本的纪念照，准备——咔嚓！📸✨**
+
+希望这次的小助手，也能陪开拓者度过轻松愉快的每一天！
+
+- 新增安卓版，需通过 Shizuku 或 Root 后台运行，支持日常和清体力任务
+- 桌面版新增「安卓设备（ADB）」支持，可连接手机或模拟器运行日常和清体力任务
+- 货币战争适配 S2「入画奇航」，新增「连击那刻夏」策略
+- 适配星铁 4.7 的星神★阿哈、饰品提取「戏剧中人」等新内容 [#1335](https://github.com/moesnow/March7thAssistant/pull/1335) @shing-yu
+- 新增「桌面分身」，可在独立的 Windows 桌面中运行，入口在「工具箱 → 桌面分身」[使用文档](https://m7a.top/docs/#/assets/docs/DesktopTwin)
+- 新增「任务期间自动降低画质」（默认关闭）
+- 新增「任务全部成功后关闭助手」选项 [#1132](https://github.com/moesnow/March7thAssistant/pull/1132) @lingse4
+- 按键设置新增「短信」，可改为与游戏内相同的按键
+- 修复货币战争的中途接管、单选确认和同名角色换装问题
+- 修复饰品提取战败后反复重试、部分副本战斗中断线后无法继续的问题 [#1343](https://github.com/moesnow/March7thAssistant/pull/1343) @shing-yu
+- 修复流程编排中嵌套步骤的执行结果无法用于后续条件判断的问题 [#1333](https://github.com/moesnow/March7thAssistant/pull/1333) @nanaoniiiii
+- 修复账号和游戏设置可能读到其他区服，以及本地触屏模式分辨率恢复异常的问题
+- 修复因开拓者昵称漏识别导致角色面板导出中断的问题
+- 修复差分宇宙「奇物损毁」只有两个选项时无法选择的问题
+- 修复从旧版本升级后首次启动仍无法保存配置的问题 [#1321](https://github.com/moesnow/March7thAssistant/pull/1321) @nyavana
+- 修复部分小游戏和挑战界面无法返回主界面的问题 [#1162](https://github.com/moesnow/March7thAssistant/pull/1162) @sparklelcm333
+- 使用文档补充 Epic 版无人值守启动说明 [#1336](https://github.com/moesnow/March7thAssistant/pull/1336) @nyavana
+- 优化性能和稳定性并修复若干已知问题
+
+## v2026.11.9-beta
+
+- 新增「桌面分身」（实验性）：在独立的 Windows 桌面中运行游戏和小助手，任务运行时不占用你的鼠标和键盘。入口在「工具箱 → 桌面分身」，使用前请先阅读[使用文档](https://m7a.top/docs/#/assets/docs/DesktopTwin)
+- 新增「任务期间自动降低画质」（默认关闭），只对助手启动的游戏生效，下次启动游戏时恢复原画质
+- 自动战斗、分辨率和画质相关选项收进可展开的「启用游戏优化」分组
+- 新增「任务全部成功后关闭助手」选项 [#1132](https://github.com/moesnow/March7thAssistant/pull/1132) @lingse4
+- 按键设置新增「短信」，可改为与游戏内相同的按键
+- 修复从旧版本升级后首次启动仍无法保存配置的问题 [#1321](https://github.com/moesnow/March7thAssistant/pull/1321) @nyavana
+- 修复部分小游戏和挑战界面无法返回主界面的问题 [#1162](https://github.com/moesnow/March7thAssistant/pull/1162) @sparklelcm333
+- 修复饰品提取翻页时找不到部分副本（如「西风丛中」）的问题
+- 修复领取短信时翻页漏掉未读消息的问题
+- 修复差分宇宙「奇物损毁」只有两个选项时无法选中的问题
+- 修复差分宇宙已进入下一区域后仍重复寻找随意门，导致提前退出的问题
+- 修复停止任务时偶尔提示「未收到输入清理回执」并强制结束的问题
+- 优化性能和稳定性并修复若干已知问题
+
+## v2026.11.8
+
+- [AI 救得了痛苦号吗？让它看完全部角色面板再配队](https://www.bilibili.com/video/BV1ot4z66Eyg/) 视频版更新说明，欢迎点赞、投币、收藏支持！
+- 新增角色面板导出，支持角色属性、光锥、星魂、技能和遗器
+- 混沌回忆新增「星启模式」与第三队编队支持 [#1283](https://github.com/moesnow/March7thAssistant/pull/1283) @23swccp
+- 末日幻影新增「星启模式」与第三队编队支持，完善节点推进与结算流程 [#1284](https://github.com/moesnow/March7thAssistant/pull/1284) @23swccp
+- 新增「免 UAC 运行」，开启后 AI 助手或脚本通过 `m7a.exe` 运行任务时无需再次确认管理员权限
+- 更新后自动同步已安装到 AI 助手的 Skill
+- Docker 支持通过 `MARCH7TH_NO_RUN_IMMEDIATELY` 环境变量设置启动后先等待定时运行 [#1303](https://github.com/moesnow/March7thAssistant/pull/1303) @StaravenX
+- 云游戏单独运行锄大地或传统模拟宇宙时自动使用有窗口模式 [#1314](https://github.com/moesnow/March7thAssistant/pull/1314) @AnonMoi
+- 循环运行统一改为定时模式，旧的「根据开拓力」配置自动迁移
+- 优化列表拖动与关卡翻页，减少后台运行时切到前台的情况
+- 修复星启快速通关奖励弹窗导致流程中断的问题 [#1309](https://github.com/moesnow/March7thAssistant/pull/1309) @XX3121
+- 修复自塑尘脂材料不足时反复尝试合成、未正确提示的问题 [#1309](https://github.com/moesnow/March7thAssistant/pull/1309) @XX3121
+- 补充「密伶之径」掉落物识别，修复相关副本无法识别的问题 [#1297](https://github.com/moesnow/March7thAssistant/pull/1297) @shing-yu
+- 修复更新后首次重启无法保存配置的问题 [#1304](https://github.com/moesnow/March7thAssistant/pull/1304) @Oc8369
+- 修复取消账号自动登录设置对话框时托盘程序一并退出的问题 [#1307](https://github.com/moesnow/March7thAssistant/pull/1307) @LumiaBlack51
+- 修复部分 Epic 安装清单和启动器窗口无法识别导致游戏启动失败的问题 [#1310](https://github.com/moesnow/March7thAssistant/pull/1310) @nyavana
+- 修复免责声明确认状态保存失败时静默退出的问题，并补充崩溃日志
+- 修复仅配置一个高难关卡时图形界面启动崩溃的问题
+- 修复角色面板导出时将尚未加载完成的星魂误判为满魂的问题
+- 修复每周遗器清理因选中数量判断异常而中断，以及清理后无法返回主界面的问题 [#1311](https://github.com/moesnow/March7thAssistant/pull/1311) @23swccp
+- 修复末日幻影常规模式结算后未返回关卡页，导致流程超时中断的问题 [#1313](https://github.com/moesnow/March7thAssistant/pull/1313) @XX3121
+- 修复单独运行的任务失败后仍误报成功并触发任务完成后操作的问题 [#1314](https://github.com/moesnow/March7thAssistant/pull/1314) @AnonMoi
+- 完善差分宇宙事件确认与不可用选项的重试处理
+- 修复角色面板导出时界面切换判定异常及部分数值漏读、误读的问题
+- 修复云游戏中运行流程编排时无法连接已有游戏会话的问题
+
+## v2026.10.31
+- 新增 Windows 后台运行模式，支持后台键鼠操作
+- 支持接入 AI 助手（设置 → 关于 → AI 助手）
+- 定时任务支持按星期执行，完善运行计划展示
+- 虚构叙事新增「星启模式」与第三队编队支持 [#1282](https://github.com/moesnow/March7thAssistant/pull/1282) @23swccp
+- 更新弹窗支持跨版本汇总更新记录
+- 支持通过 Epic 启动渠道服星穹铁道 [#1274](https://github.com/moesnow/March7thAssistant/pull/1274) @23swccp
+- 修复云游戏剩余时长为 0 时容器反复重启的问题 [#1276](https://github.com/moesnow/March7thAssistant/pull/1276) @StaravenX
+- 优化兑换码使用流程 [#1295](https://github.com/moesnow/March7thAssistant/pull/1295) @spellbook96
+- 优化性能和稳定性并修复若干已知问题
+
 ## v2026.10.16
 - 新手推荐观看 [从零开始的三月七小助手保姆级安装教程](https://www.bilibili.com/video/BV1DrJt62E1u/)，从下载、解压到首次启动，跟着视频一步步完成安装，欢迎点赞、投币、收藏支持！
-- 自动对话新增自动阅读翁法罗斯英雄纪，支持跳过已读及未解锁篇章（请先打开该书目录） [#1250](https://github.com/moesnow/March7thAssistant/pulls/1250) @long098sdo
-- 自动对话新增“记住自动对话开关状态”选项，开启后下次启动小助手时恢复开关状态，默认关闭 [#1258](https://github.com/moesnow/March7thAssistant/pulls/1258) @23swccp
-- 支持选择 HoYoPlay 启动器更新及预下载国际服游戏 [#1253](https://github.com/moesnow/March7thAssistant/pulls/1253) @300g-BoHeYou
+- 自动对话新增自动阅读翁法罗斯英雄纪，支持跳过已读及未解锁篇章（请先打开该书目录） [#1250](https://github.com/moesnow/March7thAssistant/pull/1250) @long098sdo
+- 自动对话新增“记住自动对话开关状态”选项，开启后下次启动小助手时恢复开关状态，默认关闭 [#1258](https://github.com/moesnow/March7thAssistant/pull/1258) @23swccp
+- 支持选择 HoYoPlay 启动器更新及预下载国际服游戏 [#1253](https://github.com/moesnow/March7thAssistant/pull/1253) @300g-BoHeYou
 - 开机自启升级为可配置的登录自启，支持选择是否打开图形界面、最小化到托盘及自动执行的任务，启动时不再弹出 UAC 提示
-- 助燃券满额时自动清理并继续领取周期奖励，支持差分宇宙和货币战争 [#1261](https://github.com/moesnow/March7thAssistant/pulls/1261) @Welt2000
-- 货币战争新增“触发晋升赛”和“晋升成功”结果识别 [#1270](https://github.com/moesnow/March7thAssistant/pulls/1270) @loader3229
-- 修复好友支援列表中部分带角标的角色头像无法识别的问题 [#1259](https://github.com/moesnow/March7thAssistant/pulls/1259) @23swccp
-- 修复差分宇宙卡在“奇物损毁”页面的问题 [#1264](https://github.com/moesnow/March7thAssistant/pulls/1264) @XX3121
-- 修复差分宇宙跨周继续进度时，确认弹窗导致重新进入关卡失败的问题 [#1268](https://github.com/moesnow/March7thAssistant/pulls/1268) @08158
-- 修复遗器背包已满后自动分解时，界面返回路径异常导致任务中断的问题 [#1267](https://github.com/moesnow/March7thAssistant/pulls/1267) @08158
-- 优化解锁帧率失败提示：缺少帧率配置时明确提示将图像质量改为自定义，其他错误显示简短信息并记录完整日志 [#1262](https://github.com/moesnow/March7thAssistant/pulls/1262) @23swccp
+- 助燃券满额时自动清理并继续领取周期奖励，支持差分宇宙和货币战争 [#1261](https://github.com/moesnow/March7thAssistant/pull/1261) @Welt2000
+- 货币战争新增“触发晋升赛”和“晋升成功”结果识别 [#1270](https://github.com/moesnow/March7thAssistant/pull/1270) @loader3229
+- 修复好友支援列表中部分带角标的角色头像无法识别的问题 [#1259](https://github.com/moesnow/March7thAssistant/pull/1259) @23swccp
+- 修复差分宇宙卡在“奇物损毁”页面的问题 [#1264](https://github.com/moesnow/March7thAssistant/pull/1264) @XX3121
+- 修复差分宇宙跨周继续进度时，确认弹窗导致重新进入关卡失败的问题 [#1268](https://github.com/moesnow/March7thAssistant/pull/1268) @08158
+- 修复遗器背包已满后自动分解时，界面返回路径异常导致任务中断的问题 [#1267](https://github.com/moesnow/March7thAssistant/pull/1267) @08158
+- 优化解锁帧率失败提示：缺少帧率配置时明确提示将图像质量改为自定义，其他错误显示简短信息并记录完整日志 [#1262](https://github.com/moesnow/March7thAssistant/pull/1262) @23swccp
 - 修复部分系统中数值输入框显示异常，以及输入数字时数值意外增大的问题
 - 修复任务暂停时悬浮窗快捷键提示与实际状态不一致，以及连续按暂停键可能误恢复任务的问题
 - 修复通过开机自启启动后，长时间运行的图形界面可能被任务计划程序关闭的问题
 - 修复部分配置项缺失时开关卡片显示异常的问题
 - 优化界面启动速度及长时间运行时的日志内存占用
 - 优化性能和稳定性并修复若干已知问题
-- [欢迎关注我们的B站账号，获取最新动态和教程](https://space.bilibili.com/3706960664857075)
 
 ## v2026.10.3
 - 新增 QQ 官方机器人通知渠道

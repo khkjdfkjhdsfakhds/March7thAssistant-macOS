@@ -21,6 +21,11 @@ def save_error_screenshot(logger):
             if not cloud_game.driver:
                 logger.debug("云游戏浏览器未运行，跳过错误截图")
                 return None
+        else:
+            from module.game import get_game_controller
+            if not get_game_controller().is_game_running():
+                logger.debug("游戏未运行，跳过错误截图")
+                return None
 
         # 确保截图目录存在
         screenshot_dir = os.path.join("logs", "screenshots")

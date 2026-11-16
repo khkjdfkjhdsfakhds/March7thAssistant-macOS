@@ -1,6 +1,6 @@
 import pytest
 
-from utils.version import Version
+from utils.version import Version, strip_macos_suffix
 
 
 class TestVersionHistoricalTags:
@@ -116,3 +116,26 @@ class TestPackagingCrossCheck:
                 ref_left, ref_right = packaging_version.Version(left), packaging_version.Version(right)
                 assert (mine_left == mine_right) == (ref_left == ref_right), f"{left} == {right}"
                 assert (mine_left < mine_right) == (ref_left < ref_right), f"{left} < {right}"
+
+
+class TestMacOSSuffix:
+    def test_strict_parsing_and_ordering(self):
+        sequence = [
+            "v2026.11.15-beta",
+            "v2026.11.15",
+            "v2026.11.15-macos.1",
+            "v2026.11.15-macos.2",
+            "v2026.11.15-1",
+            "v2026.11.15-1-macos.1",
+        ]
+        versions = [Version(tag, strict=True) for tag in sequence]
+        assert not versions[2].is_prerelease
+        assert not versions[3].is_prerelease
+        for earlier, later in zip(versions, versions[1:]):
+            assert earlier < later, f"{earlier} 应小于 {later}"
+
+    def test_strip_macos_suffix(self):
+        assert strip_macos_suffix("v2026.11.15-macos.2") == "v2026.11.15"
+        assert strip_macos_suffix("v2026.11.15-1-macos.1") == "v2026.11.15-1"
+        assert strip_macos_suffix("v2026.11.15-beta1-macos.1") == "v2026.11.15-beta1"
+        assert strip_macos_suffix("v2026.11.15") == "v2026.11.15"

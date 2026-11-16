@@ -144,3 +144,55 @@ def test_public_beta_empty_response_reports_correct_gui_status(monkeypatch, reco
         assert statuses == [UpdateStatus.FAILURE]
         assert "更新接口未返回有效版本信息" in thread.error_msg
         mirror.assert_not_called()
+
+
+def test_macos_update_thread_editions(monkeypatch):
+    monkeypatch.setattr(check_update.sys, "platform", "darwin")
+    config = Mock(
+        update_source="MirrorChyan",
+        mirrorchyan_cdk="test",
+        update_prerelease_enable=False,
+        update_full_enable=True,
+        version="v2026.11.15-macos.2",
+    )
+    monkeypatch.setattr(check_update, "cfg", config)
+
+    # Share edition: skips MirrorChyan even when configured.
+    monkeypatch.setenv("M7A_UPDATE_EDITION", "share")
+    calls = []
+
+    def fake_check(source="GitHub", *args, **kwargs):
+        calls.append(source)
+        return version_check.UpdateInfo(
+            "GitHub", "https://example.com/mac.dmg", "mac.dmg", "v2026.11.15-macos.3",
+            html_url="https://github.com/khkjdfkjhdsfakhds/March7thAssistant-macOS/releases/tag/v2026.11.15-macos.3",
+        )
+
+    monkeypatch.setattr(check_update, "check_for_update", fake_check)
+    thread = check_update.UpdateThread(5, False)
+    statuses = []
+    thread.updateSignal.connect(statuses.append)
+    thread.run()
+    assert statuses == [UpdateStatus.UPDATE_AVAILABLE]
+    assert calls == ["GitHub"]
+    assert thread.current_version == "v2026.11.15-macos.2"
+
+    # Local edition: normalizes current_version for upstream Changelog history lookup.
+    monkeypatch.setenv("M7A_UPDATE_EDITION", "local")
+    calls.clear()
+    monkeypatch.setattr(
+        check_update, "check_for_update",
+        lambda source="GitHub", *args, **kwargs: (
+            calls.append(source) or version_check.UpdateInfo(
+                source, "https://example.com/up.7z", "up.7z", "v2026.11.20",
+                html_url="https://github.com/moesnow/March7thAssistant/releases/tag/v2026.11.20",
+            )
+        ),
+    )
+    thread2 = check_update.UpdateThread(5, False)
+    statuses2 = []
+    thread2.updateSignal.connect(statuses2.append)
+    thread2.run()
+    assert statuses2 == [UpdateStatus.UPDATE_AVAILABLE]
+    assert calls == ["GitHub", "MirrorChyan"]
+    assert thread2.current_version == "v2026.11.15"

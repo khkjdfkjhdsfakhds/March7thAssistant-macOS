@@ -221,9 +221,9 @@
             {
                 "target_screen": "main",
                 "actions_list": [
-                    "auto.click_element('./assets/images/screen/monthly_card.png', 'image', 0.88, 10)",
+                    "auto.click_element('./assets/images/screen/monthly_card.png', 'image', 0.88, 10) or auto.click_element('点击领取今日补给', 'text', None, 5, crop=(640 / 1920, 760 / 1080, 640 / 1920, 300 / 1080), include=True)",
                     "time.sleep(4)",
-                    "auto.click_element('./assets/images/screen/monthly_card.png', 'image', 0.88, 10)"
+                    "auto.click_element('./assets/images/screen/monthly_card.png', 'image', 0.88, 2) or auto.click_element('点击空白处关闭', 'text', None, 10, crop=(640 / 1920, 760 / 1080, 640 / 1920, 300 / 1080), include=True)"
                 ]
             }
         ]

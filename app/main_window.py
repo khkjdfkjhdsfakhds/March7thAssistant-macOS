@@ -1187,11 +1187,61 @@ class MainWindow(MSFluentWindow):
         start_game_button = self.navigationInterface.widget('startGameButton')
         if start_game_button:
             start_game_button.setEnabled(False)
-        game = get_game_controller()
-        if game.is_game_running():
+        try:
+            game = get_game_controller()
+            if game.is_game_running():
+                InfoBar.warning(
+                    title=tr('游戏已在运行'),
+                    content=tr('无需重复启动游戏'),
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=5000,
+                    parent=self
+                )
+                if start_game_button:
+                    start_game_button.setEnabled(True)
+                return
+            if cfg.cloud_game_enable and cfg.browser_type == "integrated" and not game.is_integrated_browser_downloaded():
+                InfoBar.warning(
+                    title=tr('正在下载内置浏览器(ง •̀_•́)ง'),
+                    content=tr("下载成功后，将自动启动云·星穹铁道"),
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=10000,
+                    parent=self
+                )
+            elif cfg.cloud_game_enable:
+                InfoBar.warning(
+                    title=tr('正在启动游戏(❁´◡`❁)'),
+                    content="",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=5000,
+                    parent=self
+                )
+            elif getattr(cfg, "playcover_enable", False):
+                InfoBar.warning(
+                    title=tr('正在启动游戏(❁´◡`❁)'),
+                    content="",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=5000,
+                    parent=self
+                )
+            elif sys.platform == 'win32':
+                from tasks.game.starrailcontroller import StarRailController
+                starrail = StarRailController(cfg=cfg, logger=log)
+                if cfg.auto_battle_detect_enable:
+                    starrail.change_auto_battle(True)
+        except Exception as e:
+            log.error(f"启动游戏准备失败: {e}")
             InfoBar.warning(
-                title=tr('游戏已在运行'),
-                content=tr('无需重复启动游戏'),
+                title=tr('启动失败'),
+                content=str(e),
                 orient=Qt.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
@@ -1201,31 +1251,6 @@ class MainWindow(MSFluentWindow):
             if start_game_button:
                 start_game_button.setEnabled(True)
             return
-        if cfg.cloud_game_enable and cfg.browser_type == "integrated" and not game.is_integrated_browser_downloaded():
-            InfoBar.warning(
-                title=tr('正在下载内置浏览器(ง •̀_•́)ง'),
-                content=tr("下载成功后，将自动启动云·星穹铁道"),
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=10000,
-                parent=self
-            )
-        elif cfg.cloud_game_enable:
-            InfoBar.warning(
-                title=tr('正在启动游戏(❁´◡`❁)'),
-                content="",
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=5000,
-                parent=self
-            )
-        else:
-            from tasks.game.starrailcontroller import StarRailController
-            starrail = StarRailController(cfg=cfg, logger=log)
-            if cfg.auto_battle_detect_enable:
-                starrail.change_auto_battle(True)
 
         self.game_launch_thread = GameLaunchThread(game, cfg)
         self.game_launch_thread.finished_signal.connect(self.on_game_launched)
@@ -1263,9 +1288,15 @@ class MainWindow(MSFluentWindow):
                 parent=self
             )
         elif result == GameStartStatus.LOCAL_LAUNCH_FAIL:
+            if getattr(cfg, "playcover_enable", False):
+                title = tr('PlayCover 游戏启动失败(╥╯﹏╰╥)')
+                content = tr("请确认已在 PlayCover 中安装《崩坏：星穹铁道》")
+            else:
+                title = tr('游戏路径配置错误(╥╯﹏╰╥)')
+                content = tr("请在“设置”→“程序”中配置")
             InfoBar.warning(
-                title=tr('游戏路径配置错误(╥╯﹏╰╥)'),
-                content=tr("请在“设置”→“程序”中配置"),
+                title=title,
+                content=content,
                 orient=Qt.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,

@@ -41,6 +41,12 @@ def start():
         log.info(f"发现新版本: {info.version} ({info.source})")
         log.debug(f"下载URL: {info.url[:80]}..., 文件名: {info.file_name}")
 
+        if sys.platform == "darwin":
+            target_url = info.html_url or info.url
+            log.info(f"macOS 版本不支持覆盖自动更新，请前往发布页查看或下载：{target_url}")
+            log.hr("完成", 2)
+            return
+
         # 启动更新程序
         updater = os.path.abspath("./March7th Updater.exe")
         if not os.path.exists(updater):

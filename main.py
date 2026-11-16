@@ -283,7 +283,7 @@ from tasks.daily.fight import Fight
 from tasks.power.power import Power
 from tasks.weekly.universe import Universe
 from tasks.daily.redemption import Redemption
-from tasks.weekly.currency_wars import CurrencyWars
+from tasks.weekly.currency_wars import CurrencyWars, CurrencyWarsUnavailable
 from tasks.weekly.divergent_universe import DivergentUniverse
 from tasks.base.genshin_starRail_fps_unlocker import Genshin_StarRail_fps_unlocker
 from tasks.base import screen_test
@@ -359,8 +359,37 @@ def run_main_actions(no_run_immediately=False):
         main_start_time = time.time()
         try:
             version.start()
-            game.start()
-            success = Daily.start()
+            currency_wars_first = False
+            if Daily.currency_wars_due():
+                def current_currency_wars():
+                    nonlocal currency_wars_first
+                    try:
+                        currency_wars_first = CurrencyWars.game_screen_ready(for_full_run=True)
+                    except CurrencyWarsUnavailable as error:
+                        from module.automation.automation import screenshot_retry_timeout
+                        from module.automation.background_input import GameWindowLost, InputInterrupted
+                        from module.screen import screen
+
+                        try:
+                            with screenshot_retry_timeout(0):
+                                ready = screen.get_current_screen(autotry=False, max_retries=1)
+                        except (GameWindowLost, InputInterrupted, ProfileAssetNotFoundError, TouchProfileInputError):
+                            raise
+                        except (OSError, RuntimeError) as fallback_error:
+                            raise error from fallback_error
+                        if not ready or screen.current_screen not in ("main", "menu"):
+                            raise
+                        log.warning(f"已确认游戏可操作，按正常顺序继续完整运行：{error}")
+                        return True
+                    return currency_wars_first
+
+                game.start(screen_ready=current_currency_wars)
+            else:
+                game.start()
+            if currency_wars_first:
+                success = Daily.start(currency_wars_first=True)
+            else:
+                success = Daily.start()
             telemetry.track_task_complete("main", success is not False, time.time() - main_start_time)
             if success is False:
                 notif.flush_batch()
@@ -379,6 +408,7 @@ def run_main_actions(no_run_immediately=False):
 
 
 def run_sub_task(action, task_override=None):
+    from tasks.weekly.currency_wars import CurrencyWarsUnavailable
     visible_cloud_tasks = {"fight", "universe"}
     success = True
     backend = get_control_backend(cfg)
@@ -389,14 +419,33 @@ def run_sub_task(action, task_override=None):
     else:
         task_power_request.acquire(log)
         if backend == "cloud":
-            if not cloud_game.start_game_process():
+            if action == "currencywarstemp":
+                attempts = 3
+                for attempt in range(1, attempts + 1):
+                    pause_ctl.checkpoint()
+                    connected = cloud_game.start_game_process()
+                    pause_ctl.checkpoint()
+                    if connected:
+                        break
+                    if attempt < attempts:
+                        log.warning(f"货币战争中途接管暂未连接到云游戏，重新连接（{attempt}/{attempts}）")
+                        time.sleep(1)
+                else:
+                    raise CurrencyWarsUnavailable("连续无法连接正在运行的云游戏，请检查会话后继续货币战争")
+            elif not cloud_game.start_game_process():
                 raise ConnectionError("启动或连接浏览器失败")
         elif backend == "playcover":
-            if not playcover_game.start_game_process():
-                raise RuntimeError("启动游戏失败")
-            if not playcover_game.wait_ready(360):
-                raise TimeoutError("等待 PlayCover 游戏窗口或 MaaTools 就绪超时")
-        game.switch_to_game()
+            if action == "currencywarstemp":
+                game.prepare_currency_wars_takeover()
+            else:
+                if not playcover_game.start_game_process():
+                    raise RuntimeError("启动游戏失败")
+                if not playcover_game.wait_ready(360):
+                    raise TimeoutError("等待 PlayCover 游戏窗口或 MaaTools 就绪超时")
+        if action == "currencywarstemp" and backend == "local":
+            game.prepare_currency_wars_takeover()
+        elif action != "currencywarstemp":
+            game.switch_to_game()
 
     def _run_loop_task_with_telemetry(task_id, task_fn):
         while True:
@@ -410,9 +459,23 @@ def run_sub_task(action, task_override=None):
                 raise
 
     def currencywars(mode=None):
+        from tasks.weekly.currency_wars import CurrencyWarsUnavailable
         war = CurrencyWars()
         if mode == "loop":
-            _run_loop_task_with_telemetry("currencywarsloop", war.start)
+            attempts_without_result = 0
+
+            def play_next():
+                nonlocal attempts_without_result
+                won = war.start(loop=True)
+                if won or war.result is not None:
+                    attempts_without_result = 0
+                else:
+                    attempts_without_result += 1
+                    if attempts_without_result >= 3:
+                        raise CurrencyWarsUnavailable("货币战争循环连续三次未确认对局结果，已保留当前现场")
+                return won
+
+            _run_loop_task_with_telemetry("currencywarsloop", play_next)
         else:
             return war.start(resume=mode == "temp")
 
@@ -427,7 +490,7 @@ def run_sub_task(action, task_override=None):
 
     sub_tasks = {
         "routine": Daily.routine,
-        "daily": lambda: (Daily.run(), reward.start()),
+        "daily": Daily.run_standalone,
         "power": Power.run,
         "currencywars": lambda: currencywars(),
         "currencywarsloop": lambda: currencywars("loop"),
@@ -516,6 +579,8 @@ def main(action=None, no_run_immediately=False, workflow_name=None, workflow_ste
     if not task_is_supported(task_id, cfg):
         title = workflow_name or tr((AVAILABLE_TASKS | CLI_ONLY_TASKS).get(task_id, task_id))
         message = f"{tr(UNSUPPORTED_TASK)}（{title}）"
+        if sys.platform != "win32" and task_id in ("universe", "universe_gui", "universe_update"):
+            message += "；传统模拟宇宙仅支持 Windows 平台，macOS 请改用内置「差分宇宙」（m7a divergent / divergentloop）"
         run_session.note(status="blocked", reason="unsupported_backend", error=message)
         log.warning(message)
         return False
@@ -533,8 +598,7 @@ def main(action=None, no_run_immediately=False, workflow_name=None, workflow_ste
 def _run_action(action=None, no_run_immediately=False, workflow_name=None, workflow_step_path=None):
     first_run()
     pause_ctl.start()
-    backend = get_control_backend(cfg)
-    telemetry.track_startup(backend)
+    telemetry.track_startup()
 
     if workflow_name:
         return run_workflow_action(workflow_name, workflow_step_path)
@@ -634,11 +698,14 @@ if __name__ == "__main__":
             log.error(str(e))
             sys.exit(EXIT_FAILED)
         except Exception as e:
+            from tasks.game import GameStartupUnavailable
+            from tasks.weekly.currency_wars import CurrencyWarsTerminalError
             release_input()
             telemetry.track_error(type(e).__name__, str(e))
             log.error(cfg.notify_template["ErrorOccurred"].format(error=e))
-            screenshot_path = save_error_screenshot(log)
-            run_session.note(error=str(e), screenshot=screenshot_path)
+            terminal = isinstance(e, (CurrencyWarsTerminalError, GameStartupUnavailable))
+            screenshot_path = e.screenshot if terminal else save_error_screenshot(log)
+            run_session.note(error=str(e), screenshot=screenshot_path, reason=e.reason if terminal else None)
             notif.flush_batch()
             notify_kwargs = {
                 "content": cfg.notify_template["ErrorOccurred"].format(error=e),
@@ -647,8 +714,9 @@ if __name__ == "__main__":
             if screenshot_path:
                 notify_kwargs["image"] = screenshot_path
             notif.notify(**notify_kwargs)
-            pause_on_error()
-            sys.exit(1)
+            if not terminal:
+                pause_on_error()
+            sys.exit(EXIT_FAILED if terminal else 1)
     except SystemExit as e:
         run_session.finish(exit_code_of(e))
         raise

@@ -195,6 +195,25 @@ class Instance:
 
         return True
 
+    MAX_START_CLICKS = 5
+
+    @staticmethod
+    def _click_start_challenge(crop, popups=()):
+        button = auto.find_element("开始挑战", "text", max_retries=10, crop=crop)
+        if not button:
+            return False
+
+        for _ in range(Instance.MAX_START_CLICKS):
+            auto.click_element_with_pos(button)
+            time.sleep(0.5)
+            if popups and auto.find_element(popups, "text", crop=(245 / 1920, 200 / 1080, 1430 / 1920, 645 / 1080), include=True, threshold=0.7):
+                return True
+            button = auto.find_element("开始挑战", "text", max_retries=2, retry_delay=0.25, crop=crop)
+            if not button:
+                return True
+        log.warning(f"已尝试点击开始挑战 {Instance.MAX_START_CLICKS} 次，按钮仍可见，继续等待")
+        return True
+
     @staticmethod
     def start_instance(instance_type, attempts_per_run):
 
@@ -255,7 +274,10 @@ class Instance:
                     time.sleep(0.5)
             time.sleep(1)
 
-            if auto.click_element("开始挑战", "text", max_retries=10, crop=(1615 / 1920, 956 / 1080, 243 / 1920, 55 / 1080)):
+            if Instance._click_start_challenge(
+                (1615 / 1920, 956 / 1080, 243 / 1920, 55 / 1080),
+                ("仍有角色位空缺", "当前不存在任何存档，是否直接开始战斗", "背包内遗器持有数量已达上限"),
+            ):
                 # 快速连续检测多次，增加捕获瞬间提示的概率
                 time.sleep(0.5)
 
@@ -349,7 +371,10 @@ class Instance:
 
                 Character.borrow()
 
-                if auto.click_element("开始挑战", "text", max_retries=10, crop=(1518 / 1920, 960 / 1080, 334 / 1920, 61 / 1080)):
+                if Instance._click_start_challenge(
+                    (1518 / 1920, 960 / 1080, 334 / 1920, 61 / 1080),
+                    ("背包内遗器持有数量已达上限",) if ("侵蚀隧洞" in instance_type or "历战余响" in instance_type) else (),
+                ):
                     # 检测遗器背包已满的提示
                     if "侵蚀隧洞" in instance_type or "历战余响" in instance_type:
                         for _ in range(5):  # 连续快速检测5次

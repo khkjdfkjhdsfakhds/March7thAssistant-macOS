@@ -68,20 +68,32 @@ class PlayCoverInput(InputBase):
                     post_hold_ms=max(20, int(round(float(hold_end) * 1000))),
                 )
                 return
+            from utils.pause import pause_ctl
             steps = max(int(duration / 0.016), 5)
-            self._touch(TouchPhase.BEGAN, start[0], start[1], contact)
-            time.sleep(0.05)
-            for i in range(1, steps + 1):
-                t = i / steps
-                self._touch(
-                    TouchPhase.MOVED,
-                    start[0] + (end[0] - start[0]) * t,
-                    start[1] + (end[1] - start[1]) * t,
-                    contact,
-                )
-                time.sleep(duration / steps)
-            time.sleep(hold_end)
-            self._touch(TouchPhase.ENDED, end[0], end[1], contact)
+            pause_ctl.check_stop()
+            last_x, last_y = start[0], start[1]
+            began = False
+            try:
+                self._touch(TouchPhase.BEGAN, start[0], start[1], contact)
+                began = True
+                time.sleep(0.05)
+                for i in range(1, steps + 1):
+                    pause_ctl.check_stop()
+                    t = i / steps
+                    last_x = start[0] + (end[0] - start[0]) * t
+                    last_y = start[1] + (end[1] - start[1]) * t
+                    self._touch(
+                        TouchPhase.MOVED,
+                        last_x,
+                        last_y,
+                        contact,
+                    )
+                    time.sleep(duration / steps)
+                pause_ctl.check_stop()
+                time.sleep(hold_end)
+            finally:
+                if began:
+                    self._touch(TouchPhase.ENDED, last_x, last_y, contact)
 
     def release_all(self) -> None:
         with self._lock:

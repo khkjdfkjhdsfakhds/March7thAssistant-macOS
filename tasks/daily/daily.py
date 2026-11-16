@@ -81,6 +81,13 @@ class Daily:
         reward.start()
 
     @staticmethod
+    def run_standalone():
+        return run_steps((
+            ("日常领奖", reward.start),
+            ("每日实训", Daily.run),
+        ))
+
+    @staticmethod
     def _run_scheduled_divergent_universe(divergent: DivergentUniverse):
         target_count = int(cfg.universe_count)
         cycle = "weekly" if cfg.universe_frequency == "weekly" else "daily"
@@ -101,7 +108,7 @@ class Daily:
         log.info(f"差分宇宙固定次数进度（{cycle_label}）：{completed_count}/{target_count}，继续运行剩余 {remaining_runs} 次")
 
         for _ in range(remaining_runs):
-            if not divergent.start():
+            if not divergent.start(universe_type=cfg.divergent_type):
                 log.warning(f"差分宇宙本轮未完成，不计入固定次数，下次将从 {cycle_label} {completed_count}/{target_count} 继续")
                 return
 
@@ -112,7 +119,11 @@ class Daily:
         log.info("差分宇宙固定次数已全部完成，记录本轮执行时间")
 
     @staticmethod
-    def start():
+    def currency_wars_due():
+        return cfg.currencywars_enable and Date.is_next_mon_x_am(cfg.currencywars_timestamp, cfg.refresh_hour)
+
+    @staticmethod
+    def start(*, currency_wars_first=False):
         steps = [("日常准备", Daily.prepare_daily)]
 
         # 合成自塑尘脂、余烬兑换等
@@ -122,7 +133,9 @@ class Daily:
             if any(cfg.get_value(item.enable_key, False) for item in EmberExchange.ITEMS):
                 steps.append(("余烬兑换", EmberExchange.start))
 
-        if cfg.currencywars_enable and Date.is_next_mon_x_am(cfg.currencywars_timestamp, cfg.refresh_hour):
+        if currency_wars_first:
+            steps.insert(0, ("货币战争", Daily._run_currency_wars))
+        elif Daily.currency_wars_due():
             steps.append(("货币战争", Daily._run_currency_wars))
 
         if cfg.weekly_divergent_enable and Date.is_next_mon_x_am(cfg.weekly_divergent_timestamp, cfg.refresh_hour):
@@ -165,8 +178,8 @@ class Daily:
         for _ in range(3):
             if divergent.check_divergent_universe_score():
                 return True
-            if divergent.start() is False:
-                return False
+            # 未完成对局也可能结算本周积分。按周奖励状态判断是否继续补打。
+            divergent.start()
             if not Date.is_next_mon_x_am(cfg.weekly_divergent_timestamp, cfg.refresh_hour):
                 return True
         log.warning("尝试运行了多轮差分宇宙，但积分奖励仍未完成，可能遇到未知问题，请检查日志")

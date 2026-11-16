@@ -5,15 +5,19 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 VERSION="$(tr -d '[:space:]' < "$PROJECT_DIR/assets/config/version.txt")"
 APP_NAME="三月七小助手.app"
-DIST_APP="$PROJECT_DIR/dist/$APP_NAME"
+DIST_APP="$PROJECT_DIR/dist/share/$APP_NAME"
 STAGE_DIR="$PROJECT_DIR/dist/dmg_stage"
 DMG_NAME="March7thAssistant-macOS-${VERSION}-arm64.dmg"
 DMG_PATH="$PROJECT_DIR/dist/$DMG_NAME"
 SUMS_PATH="$PROJECT_DIR/dist/SHA256SUMS.txt"
 
-if [[ ! -d "$DIST_APP" ]]; then
-  echo "==> $DIST_APP missing, building via make_app.sh --dist-only"
-  bash "$SCRIPT_DIR/make_app.sh" --dist-only
+echo "==> Building fresh share edition app via make_app.sh --edition share --dist-only"
+bash "$SCRIPT_DIR/make_app.sh" --edition share --dist-only
+
+BUILT_EDITION="$(tr -d '[:space:]' < "$DIST_APP/Contents/Resources/app/assets/config/build_edition.txt" 2>/dev/null || true)"
+if [[ "$BUILT_EDITION" != "share" ]]; then
+  echo "Error: expected share edition in $DIST_APP, got '$BUILT_EDITION'" >&2
+  exit 1
 fi
 
 rm -rf "$STAGE_DIR" "$DMG_PATH"

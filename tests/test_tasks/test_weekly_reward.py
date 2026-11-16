@@ -191,15 +191,14 @@ class TestWeeklyRewardEntrypoints(unittest.TestCase):
             "tasks.base.pythonchecker": {"PythonChecker": Mock()},
             "tasks.power.power": {"Power": Mock()},
             "tasks.weekly.weekly_reward": {"wait_for_weekly_reward": self.wait},
-            "utils.date": {"Date": Mock()},
+            "utils.date": {"Date": Mock(is_next_mon_x_am=Mock(return_value=False))},
             "utils.command": {"subprocess_with_timeout": Mock()},
             "utils.console": {"pause_on_error": Mock(), "pause_and_retry": Mock()},
-            "numpy": {},
+            "numpy": {"ndarray": object},
         }))
 
     def test_all_three_entrypoints_wait_before_success_notification(self):
         for filename, class_name in (
-            ("currency_wars.py", "CurrencyWars"),
             ("divergent_universe.py", "DivergentUniverse"),
             ("universe.py", "Universe"),
         ):
@@ -222,6 +221,77 @@ class TestWeeklyRewardEntrypoints(unittest.TestCase):
                         self.auto.press_key.assert_called_with("esc")
                     else:
                         self.assertNotIn("esc", [call.args[0] for call in self.auto.press_key.call_args_list])
+
+    def test_currency_wars_s2_entrypoint_waits_for_receipt_before_notification(self):
+        module = self.load_entrypoint("currency_wars.py")
+        Page = module.Page
+
+        class _Frame:
+            def __init__(self, page_value, score=(15000, 18000), claimable=False):
+                self.page = page_value
+                self._score = score
+                self._claimable = claimable
+                self.image = "receipt-image"
+                self.action_context = (page_value, claimable)
+
+            def same_control(self, p, other, q):
+                return p == q
+
+            def find(self, text, area=None):
+                return (381, 961) if text == "积分" else None
+
+            def ratio(self, area):
+                return self._score
+
+            def claim_available(self):
+                return self._claimable
+
+            def claim_button_visible(self):
+                return self._claimable
+
+            def reward_close(self):
+                return (964, 851)
+
+        for received in (True, False):
+            with self.subTest(entrypoint="CurrencyWars", received=received):
+                self.base.send_notification_with_screenshot.reset_mock()
+                self.auto.press_key.reset_mock()
+                lobby = _Frame(Page.HOME)
+                weekly = _Frame(Page.WEEKLY, claimable=received)
+                receipt = _Frame(Page.REWARD_RECEIPT)
+                claimed_weekly = _Frame(Page.WEEKLY, claimable=False)
+                state = {"frame": lobby}
+
+                def tap(frame, point, **kwargs):
+                    if frame.page == Page.HOME:
+                        state["frame"] = weekly
+                    elif frame.page == Page.WEEKLY and point == (1640, 728):
+                        state["frame"] = receipt
+                    elif frame.page == Page.REWARD_RECEIPT:
+                        state["frame"] = claimed_weekly
+                    return state["frame"]
+
+                self.auto.press_key.side_effect = lambda key: (
+                    state.__setitem__("frame", lobby) if key == "esc" else None
+                )
+                task = module.CurrencyWars()
+                with (
+                    patch.object(module.time, "sleep"),
+                    patch.object(module.ui, "point", side_effect=lambda value: value),
+                    patch.object(task, "_capture", side_effect=lambda: state["frame"]),
+                    patch.object(task, "_observe", side_effect=lambda: state["frame"]),
+                    patch.object(task, "_tap", side_effect=tap),
+                ):
+                    result_frame, score, claimed = task.get_reward(lobby)
+
+                self.assertIs(result_frame, lobby)
+                self.assertEqual(score, (15000, 18000))
+                self.assertIs(claimed, received)
+                self.assertEqual(
+                    self.base.send_notification_with_screenshot.call_count,
+                    1 if received else 0,
+                )
+                self.auto.press_key.assert_called_with("esc")
 
 
 if __name__ == "__main__":

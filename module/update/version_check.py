@@ -22,7 +22,7 @@ from module.update.download_proxy import (
     get_update_download_requests_proxies,
     get_update_requests_proxy_description,
 )
-from utils.version import Version
+from utils.version import Version, strip_macos_suffix
 
 
 @dataclass
@@ -46,12 +46,43 @@ class VersionCheckError(RuntimeError):
 
 _MAC_GITHUB_REPO = "khkjdfkjhdsfakhds/March7thAssistant-macOS"
 _UPSTREAM_GITHUB_REPO = "moesnow/March7thAssistant"
-_GITHUB_REPO = _MAC_GITHUB_REPO if sys.platform == "darwin" else _UPSTREAM_GITHUB_REPO
+_BUILD_EDITION_FILE = "./assets/config/build_edition.txt"
 
-GITHUB_API_BASES = (
-    f"https://api.github.com/repos/{_GITHUB_REPO}",
-    f"https://github.kotori.top/https://api.github.com/repos/{_GITHUB_REPO}",
-)
+
+def get_update_edition() -> str:
+    """返回当前构建的更新通道：'local'（检测原版更新）或 'share'（仅检测本 macOS 仓库更新）。"""
+    env_val = os.environ.get("M7A_UPDATE_EDITION", "").strip().lower()
+    if env_val in ("local", "share"):
+        return env_val
+    try:
+        with open(_BUILD_EDITION_FILE, "r", encoding="utf-8") as f:
+            file_val = f.read().strip().lower()
+        if file_val in ("local", "share"):
+            return file_val
+    except Exception:
+        pass
+    return "local"
+
+
+def get_github_repo(edition: str | None = None) -> str:
+    if sys.platform != "darwin":
+        return _UPSTREAM_GITHUB_REPO
+    resolved = (edition or get_update_edition()).strip().lower()
+    return _MAC_GITHUB_REPO if resolved == "share" else _UPSTREAM_GITHUB_REPO
+
+
+def get_github_api_bases(edition: str | None = None) -> tuple[str, ...]:
+    repo = get_github_repo(edition)
+    return (
+        f"https://api.github.com/repos/{repo}",
+        f"https://github.kotori.top/https://api.github.com/repos/{repo}",
+    )
+
+
+_GITHUB_REPO = get_github_repo()
+_INITIAL_GITHUB_REPO = _GITHUB_REPO
+
+GITHUB_API_BASES = get_github_api_bases()
 
 _GITHUB_API_URLS = [base + "/releases/latest" for base in GITHUB_API_BASES]
 
@@ -302,7 +333,12 @@ def _check_github(
 
     返回 UpdateInfo 如果有新版本；返回 None 如果已是最新。
     """
-    urls = _GITHUB_API_PRERELEASE_URLS if prerelease else _GITHUB_API_URLS
+    active_repo = get_github_repo()
+    if active_repo == _INITIAL_GITHUB_REPO:
+        urls = _GITHUB_API_PRERELEASE_URLS if prerelease else _GITHUB_API_URLS
+    else:
+        suffix = "/releases?per_page=1" if prerelease else "/releases/latest"
+        urls = [base + suffix for base in get_github_api_bases()]
     fastest_api = _find_fastest_api(urls, proxies=proxies)
     last_error = None
     # 测速成功只代表 HTTP 可达；响应内容异常时依次尝试其他接口，每个地址只请求一次。
@@ -347,7 +383,21 @@ def _check_github(
             (a for a in assets if ".dmg" in (a.get("browser_download_url") or a.get("name") or "").lower()),
             None,
         )
+        if not asset and get_update_edition() == "local" and assets:
+            asset = assets[0]
     if not asset:
+        if sys.platform == "darwin" and get_update_edition() == "local":
+            log.info(f"GitHub 发现上游新版本: {version}")
+            return UpdateInfo(
+                source="GitHub",
+                url=release.get("html_url", ""),
+                file_name="",
+                version=version,
+                sha256="",
+                release_note=release.get("body", ""),
+                html_url=release.get("html_url", ""),
+                api_base=api_url.rsplit("/releases", 1)[0],
+            )
         raise VersionCheckError(tr("没有找到合适的下载URL"))
 
     download_url = asset.get("browser_download_url", "")
@@ -393,17 +443,20 @@ def check_for_update(
         VersionCheckError: 检测失败。mirrorchyan_fallback=False 时 Mirror酱 错误会直接抛出。
     """
     current_version = get_local_version()
+    mac_edition = get_update_edition() if sys.platform == "darwin" else ""
+    compare_version = strip_macos_suffix(current_version) if mac_edition == "local" else current_version
     request_proxies = get_update_download_requests_proxies()
     proxy_desc = get_update_requests_proxy_description()
     log.debug(f"版本检测: source={source}, prerelease={prerelease}, "
-              f"current={current_version}, cdk={'***' if cdk else 'empty'}")
+              f"current={current_version}, compare={compare_version}, "
+              f"edition={mac_edition or 'upstream'}, cdk={'***' if cdk else 'empty'}")
     if proxy_desc:
         log.info(f"更新检测使用代理: {proxy_desc}")
 
-    # 优先尝试 Mirror酱
-    if source == "MirrorChyan" and cdk:
+    # 优先尝试 Mirror酱（对外分享版仅检测 macOS 仓库自身发布）
+    if mac_edition != "share" and source == "MirrorChyan" and cdk:
         try:
-            result = _check_mirrorchyan(cdk, prerelease, current_version, request_proxies)
+            result = _check_mirrorchyan(cdk, prerelease, compare_version, request_proxies)
             if result is not None:
                 log.debug(f"Mirror酱 检测结果: {result}")
                 return result
@@ -416,10 +469,10 @@ def check_for_update(
 
     # GitHub（含 source == "GitHub" 或 Mirror酱 失败的回退）
     try:
-        result = _check_github(prerelease, current_version, full, request_proxies)
+        result = _check_github(prerelease, compare_version, full, request_proxies)
     except VersionCheckError:
-        if not prerelease and sys.platform == "darwin":
-            result = _check_github(True, current_version, full, request_proxies)
+        if not prerelease and mac_edition == "share":
+            result = _check_github(True, compare_version, full, request_proxies)
         else:
             raise
     log.debug(f"GitHub 检测结果: {result}")

@@ -21,9 +21,14 @@ class GameLaunchThread(QThread):
 
     def run(self):
         try:
-            # 根据是否启用云游戏决定启动方式
+            # 根据运行模式决定启动方式
             if self.cfg.cloud_game_enable:
                 success = self.game.start_game_process(headless=False)
+            elif getattr(self.cfg, "playcover_enable", False):
+                try:
+                    success = self.game.start_game_process(background=False)
+                except TypeError:
+                    success = self.game.start_game_process()
             else:
                 success = self.game.start_game_process()
 

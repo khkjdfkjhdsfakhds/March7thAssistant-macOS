@@ -2,17 +2,45 @@
 set -euo pipefail
 
 DIST_ONLY=0
-for arg in "$@"; do
-  case "$arg" in
+EDITION="local"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
     --dist-only)
       DIST_ONLY=1
+      shift
+      ;;
+    --edition)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing argument for --edition (expected local|share)" >&2
+        exit 2
+      fi
+      EDITION="$2"
+      shift 2
+      ;;
+    --edition=*)
+      EDITION="${1#*=}"
+      shift
       ;;
     *)
-      echo "Unknown option: $arg" >&2
+      echo "Unknown option: $1" >&2
       exit 2
       ;;
   esac
 done
+
+case "$EDITION" in
+  local|share)
+    ;;
+  *)
+    echo "Invalid --edition: $EDITION (expected local|share)" >&2
+    exit 2
+    ;;
+esac
+
+if [[ "$EDITION" == "share" ]]; then
+  # 分享版只在独立目录输出，避免误覆盖 /Applications 的本地自用版
+  DIST_ONLY=1
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -37,7 +65,11 @@ fi
 VERSION="$(tr -d '[:space:]' < "$PROJECT_DIR/assets/config/version.txt")"
 SHORT_VERSION="${VERSION#v}"
 APP_NAME="三月七小助手.app"
-DIST_APP="$PROJECT_DIR/dist/$APP_NAME"
+if [[ "$EDITION" == "share" ]]; then
+  DIST_APP="$PROJECT_DIR/dist/share/$APP_NAME"
+else
+  DIST_APP="$PROJECT_DIR/dist/$APP_NAME"
+fi
 CONTENTS="$DIST_APP/Contents"
 WORKER_APP="$CONTENTS/Helpers/March7thWorker.app"
 INSTALL_APP="/Applications/$APP_NAME"
@@ -95,7 +127,7 @@ PY
 iconutil -c icns "$ICONSET_DIR" -o "$CONTENTS/Resources/AppIcon.icns"
 rm -rf "$ICONSET_TMP"
 
-echo "==> [4/8] Copying clean app code & runtime assets"
+echo "==> [4/8] Copying clean app code & runtime assets (edition: $EDITION)"
 for item in app module tasks utils assets 3rdparty; do
   rsync -a \
     --exclude '__pycache__' \
@@ -103,6 +135,7 @@ for item in app module tasks utils assets 3rdparty; do
     --exclude '.DS_Store' \
     "$PROJECT_DIR/$item/" "$CONTENTS/Resources/app/$item/"
 done
+printf '%s\n' "$EDITION" > "$CONTENTS/Resources/app/assets/config/build_edition.txt"
 mkdir -p "$CONTENTS/Resources/app/tools/macos"
 cp "$PROJECT_DIR/tools/macos/pc_helper" "$CONTENTS/Resources/app/tools/macos/pc_helper"
 chmod +x "$CONTENTS/Resources/app/tools/macos/pc_helper"

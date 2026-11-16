@@ -10,11 +10,11 @@ from qfluentwidgets import InfoBar, InfoBarPosition
 
 from module.config import cfg
 from module.localization import tr
-from module.update.version_check import check_for_update
+from module.update.version_check import check_for_update, get_update_edition
 from module.update.changelog import (ChangelogCancelled, clean_release_body,
                                      collect_update_notes, fetch_changelog)
 from module.logger import log
-from utils.version import Version
+from utils.version import Version, strip_macos_suffix
 
 from ..card.messagebox_custom import MessageBoxUpdate
 
@@ -99,15 +99,18 @@ class UpdateThread(QThread):
             source = cfg.update_source
             cdk = cfg.mirrorchyan_cdk
             prerelease = cfg.update_prerelease_enable
-            self.current_version = cfg.version
+            mac_edition = get_update_edition() if sys.platform == "darwin" else ""
+            self.current_version = (
+                strip_macos_suffix(cfg.version) if mac_edition == "local" else cfg.version
+            )
             self.prerelease = prerelease
             full = cfg.update_full_enable or source == "MirrorChyan"
 
             # 始终先请求 GitHub，获取 html_url、更新日志等信息
             github_info = check_for_update("GitHub", prerelease=prerelease, full=full)
 
-            # 如果用户配置了 Mirror酱，再请求 Mirror酱
-            if source == "MirrorChyan" and cdk:
+            # 如果用户配置了 Mirror酱，再请求 Mirror酱（对外分享版仅检测 macOS 仓库自身发布）
+            if mac_edition != "share" and source == "MirrorChyan" and cdk:
                 try:
                     mirror_info = check_for_update("MirrorChyan", cdk, prerelease, full=full, mirrorchyan_fallback=False)
                 except Exception as e:
@@ -176,6 +179,13 @@ def checkUpdate(self, timeout: int = 5, flag: bool = False, silent: bool = False
         assert_sha256: str,
         message_box,
     ):
+        if sys.platform == "darwin":
+            target_url = getattr(thread, "html_url", "") or assert_url
+            if target_url:
+                QDesktopServices.openUrl(QUrl(target_url))
+            message_box.reject()
+            return
+
         from module.update.update_window import show_update_window
 
         message_box.reject()
@@ -208,6 +218,20 @@ def checkUpdate(self, timeout: int = 5, flag: bool = False, silent: bool = False
             if update_thread.mirror_version_mismatch:
                 message_box.mirrorchyanUpdateCard.setContent(tr("该渠道版本与目标版本不一致，请稍后重试"))
                 message_box.mirrorchyanUpdateCard.setEnabled(False)
+            if sys.platform == "darwin":
+                if hasattr(message_box, "mirrorchyanUpdateCard") and message_box.mirrorchyanUpdateCard:
+                    message_box.mirrorchyanUpdateCard.setHidden(True)
+                if hasattr(message_box, "githubUpdateCard") and message_box.githubUpdateCard:
+                    if get_update_edition() == "share":
+                        message_box.githubUpdateCard.button.setText(tr("前往下载"))
+                        message_box.githubUpdateCard.setContent(
+                            tr("前往 GitHub 发布页下载最新 macOS 安装包 (.dmg)")
+                        )
+                    else:
+                        message_box.githubUpdateCard.button.setText(tr("查看更新"))
+                        message_box.githubUpdateCard.setContent(
+                            tr("检测到上游原版更新，前往 GitHub 查看更新详情")
+                        )
 
             notes_thread = UpdateNotesThread(
                 update_thread.current_version, update_thread.version, update_thread.latest_note,

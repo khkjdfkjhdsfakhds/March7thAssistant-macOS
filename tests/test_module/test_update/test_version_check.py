@@ -226,3 +226,103 @@ class TestCheckGithub:
 
         urls = [args.args[0] for args in get.call_args_list]
         assert len(urls) == len(set(urls)) == 2
+
+
+class TestMacUpdateEditions:
+    def test_edition_priority_env_over_file_over_default(self, monkeypatch, tmp_path):
+        edition_file = tmp_path / "build_edition.txt"
+        monkeypatch.setattr(version_check, "_BUILD_EDITION_FILE", str(edition_file))
+        monkeypatch.delenv("M7A_UPDATE_EDITION", raising=False)
+        assert version_check.get_update_edition() == "local"
+
+        edition_file.write_text("share\n", encoding="utf-8")
+        assert version_check.get_update_edition() == "share"
+
+        monkeypatch.setenv("M7A_UPDATE_EDITION", "local")
+        assert version_check.get_update_edition() == "local"
+
+    def test_local_edition_strips_macos_suffix_and_checks_upstream(self, monkeypatch, github_api):
+        _, get = github_api
+        monkeypatch.setattr(version_check.sys, "platform", "darwin")
+        monkeypatch.setenv("M7A_UPDATE_EDITION", "local")
+        monkeypatch.setattr(version_check, "get_local_version", lambda: "v2026.11.15-macos.2")
+
+        assert version_check.get_github_repo() == "moesnow/March7thAssistant"
+
+        # Upstream is on v2026.11.15 -> stripped local is v2026.11.15 -> up to date.
+        get.return_value = github_response({
+            "tag_name": "v2026.11.15",
+            "body": "upstream",
+            "html_url": "https://github.com/moesnow/March7thAssistant/releases/tag/v2026.11.15",
+            "assets": [{"name": "March7thAssistant_full.7z", "browser_download_url": "https://example.com/full.7z"}],
+        })
+        assert version_check.check_for_update("GitHub", prerelease=False) is None
+
+        # Upstream hotfix v2026.11.15-1 -> detected even without a .dmg asset.
+        get.return_value = github_response({
+            "tag_name": "v2026.11.15-1",
+            "body": "hotfix",
+            "html_url": "https://github.com/moesnow/March7thAssistant/releases/tag/v2026.11.15-1",
+            "assets": [{"name": "March7thAssistant.zip", "browser_download_url": "https://example.com/app.zip"}],
+        })
+        info = version_check.check_for_update("GitHub", prerelease=False)
+        assert info is not None
+        assert info.version == "v2026.11.15-1"
+        assert "moesnow/March7thAssistant" in info.html_url
+
+        # Formal check failure on local edition must NOT fall back to upstream prerelease channel.
+        get.reset_mock()
+        get.side_effect = [Mock(status_code=404), Mock(status_code=404)]
+        with pytest.raises(version_check.VersionCheckError):
+            version_check.check_for_update("GitHub", prerelease=False)
+        assert get.call_count == 2
+
+    def test_share_edition_ignores_mirrorchyan_and_checks_mac_repo_only(self, monkeypatch, github_api):
+        _, get = github_api
+        monkeypatch.setattr(version_check.sys, "platform", "darwin")
+        monkeypatch.setenv("M7A_UPDATE_EDITION", "share")
+        monkeypatch.setattr(version_check, "get_local_version", lambda: "v2026.11.15-macos.2")
+        mirror = Mock(side_effect=AssertionError("share edition must never query MirrorChyan"))
+        monkeypatch.setattr(version_check, "_check_mirrorchyan", mirror)
+
+        assert version_check.get_github_repo() == "khkjdfkjhdsfakhds/March7thAssistant-macOS"
+
+        # Remote still at v2026.11.15-macos.1 (older than local v2026.11.15-macos.2) -> None.
+        get.return_value = github_response([{
+            "tag_name": "v2026.11.15-macos.1",
+            "body": "mac release 1",
+            "html_url": "https://github.com/khkjdfkjhdsfakhds/March7thAssistant-macOS/releases/tag/v2026.11.15-macos.1",
+            "assets": [{"name": "app.dmg", "browser_download_url": "https://example.com/app1.dmg"}],
+        }])
+        # Simulate formal latest returning 404 (pre-release only), falling back to prerelease list.
+        get.side_effect = [
+            Mock(status_code=404),
+            Mock(status_code=404),
+            github_response([{
+                "tag_name": "v2026.11.15-macos.1",
+                "body": "mac release 1",
+                "html_url": "https://github.com/khkjdfkjhdsfakhds/March7thAssistant-macOS/releases/tag/v2026.11.15-macos.1",
+                "assets": [{"name": "app.dmg", "browser_download_url": "https://example.com/app1.dmg"}],
+            }]),
+        ]
+        assert version_check.check_for_update("MirrorChyan", cdk="secret", prerelease=False) is None
+        mirror.assert_not_called()
+        assert all("khkjdfkjhdsfakhds/March7thAssistant-macOS" in c.args[0] for c in get.call_args_list)
+
+        # Remote updated to v2026.11.15-macos.3 -> returns .dmg UpdateInfo.
+        get.reset_mock()
+        get.side_effect = [
+            Mock(status_code=404),
+            Mock(status_code=404),
+            github_response([{
+                "tag_name": "v2026.11.15-macos.3",
+                "body": "mac release 3",
+                "html_url": "https://github.com/khkjdfkjhdsfakhds/March7thAssistant-macOS/releases/tag/v2026.11.15-macos.3",
+                "assets": [{"name": "March7thAssistant-macOS-v2026.11.15-macos.3-arm64.dmg",
+                            "browser_download_url": "https://example.com/app3.dmg"}],
+            }]),
+        ]
+        info = version_check.check_for_update("GitHub", prerelease=False)
+        assert info is not None
+        assert info.version == "v2026.11.15-macos.3"
+        assert info.file_name.endswith(".dmg")

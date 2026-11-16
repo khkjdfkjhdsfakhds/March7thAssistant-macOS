@@ -1,8 +1,8 @@
 # coding:utf-8
 import copy
 
-from PySide6.QtCore import Qt, QRectF
-from PySide6.QtGui import QPainter, QPainterPath, QImage, QAction, QColor, QPen
+from PySide6.QtCore import Qt, QRectF, QUrl
+from PySide6.QtGui import QPainter, QPainterPath, QImage, QAction, QColor, QPen, QDesktopServices
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGraphicsDropShadowEffect, QFileDialog, QDialog
 
 from qfluentwidgets import ScrollArea, FluentIcon, RoundMenu, PushButton, isDarkTheme
@@ -14,6 +14,8 @@ from tasks.base.tasks import start_task
 
 from module.config import cfg
 from module.localization import tr
+from module.logger import log
+from utils.desktop import open_path
 
 from PIL import Image
 import numpy as np
@@ -272,20 +274,35 @@ class HomeInterface(ScrollArea):
         return cards_data
 
     @staticmethod
+    def _open_tool_dir(path: str, label: str, fallback_hint: str) -> None:
+        if not path or not os.path.exists(path):
+            log.warning(f"未找到{label}目录（{path or '未配置'}）；{fallback_hint}")
+            return
+        open_path(path)
+
+    @staticmethod
     def _get_extra_task_action(task_id):
         """获取特殊主页操作的 lambda"""
         if task_id == "_reset_universe_config":
             return lambda: [os.remove(p) for p in map(lambda f: os.path.join(cfg.universe_path, f), ["info.yml", "info_old.yml"]) if os.path.exists(p)]
         elif task_id == "_open_universe_dir":
-            return lambda: os.startfile(cfg.universe_path)
+            return lambda: HomeInterface._open_tool_dir(
+                cfg.universe_path,
+                "模拟宇宙",
+                "传统模拟宇宙仅支持 Windows，macOS 请改用「差分宇宙」",
+            )
         elif task_id == "_open_universe_homepage":
-            return lambda: os.startfile("https://github.com/CHNZYX/Auto_Simulated_Universe")
+            return lambda: QDesktopServices.openUrl(QUrl("https://github.com/CHNZYX/Auto_Simulated_Universe"))
         elif task_id == "_reset_fight_config":
             return lambda: os.path.exists(os.path.join(cfg.fight_path, "config.json")) and os.remove(os.path.join(cfg.fight_path, "config.json"))
         elif task_id == "_open_fight_dir":
-            return lambda: os.startfile(cfg.fight_path)
+            return lambda: HomeInterface._open_tool_dir(
+                cfg.fight_path,
+                "锄大地",
+                "传统锄大地外部程序仅支持 Windows",
+            )
         elif task_id == "_open_fight_homepage":
-            return lambda: os.startfile("https://github.com/linruowuyin/Fhoe-Rail")
+            return lambda: QDesktopServices.openUrl(QUrl("https://github.com/linruowuyin/Fhoe-Rail"))
         return lambda: None
 
     def _on_edit_cards(self):

@@ -36,6 +36,7 @@ _VERSION_PATTERN = re.compile(
             (?P<post_n>[0-9]+)?
         )
     )?
+    (?:[-_.]*(?P<macos_l>macos)[-_.]*(?P<macos_n>[0-9]+)?)?
     (?:[-_.]*(?P<dev_l>dev)[-_.]*(?P<dev_n>[0-9]+)?)?
     (?:\+(?P<local>[a-z0-9]+(?:[-_.][a-z0-9]+)*))?
     \s*$""",
@@ -78,6 +79,7 @@ class Version:
             else:
                 self._post = None
             self._dev = int(match.group("dev_n") or 0) if match.group("dev_l") else None
+            self._macos = int(match.group("macos_n") or 0) if match.group("macos_l") else None
             self._local = bool(match.group("local"))
         else:
             if strict:
@@ -90,6 +92,7 @@ class Version:
             self._release = self._normalize_release(fallback.group(1))
             self._pre = None
             self._post = None
+            self._macos = None
             self._dev = None
             self._local = False
 
@@ -104,7 +107,7 @@ class Version:
     def _cmp_key(self):
         """生成比较键，排序语义与 PEP 440 一致。"""
         # 预发布阶段：纯 dev 版本排在所有预发布之前，无预发布则排在之后
-        if self._pre is None and self._post is None and self._dev is not None:
+        if self._pre is None and self._post is None and self._macos is None and self._dev is not None:
             pre_key = (0,)
         elif self._pre is None:
             pre_key = (2,)
@@ -112,10 +115,12 @@ class Version:
             pre_key = (1, _PRE_RANK[self._pre[0]], self._pre[1])
         # post 版本大于无 post 的版本（隐式 post 与显式 post 等价）
         post_key = (1, self._post) if self._post is not None else (0,)
+        # macOS 移植版构建后缀（如 2026.11.15-macos.2）介于对应上游版本与下一上游 post/版本之间
+        macos_key = (1, self._macos) if self._macos is not None else (0,)
         # dev 版本小于对应的正式版本
         dev_key = (0, self._dev) if self._dev is not None else (1,)
         local_key = (1,) if self._local else (0,)
-        return self._epoch, self._release, pre_key, post_key, dev_key, local_key
+        return self._epoch, self._release, pre_key, post_key, macos_key, dev_key, local_key
 
     def __eq__(self, other):
         if not isinstance(other, Version):
@@ -139,3 +144,11 @@ class Version:
 
     def __repr__(self):
         return f"Version({self._text!r})"
+
+
+_MACOS_SUFFIX_RE = re.compile(r"[-_.]*macos(?:[-_.]*\d+)?", re.IGNORECASE)
+
+
+def strip_macos_suffix(version_text: str) -> str:
+    """移除 macOS 移植版构建后缀（如 v2026.11.15-macos.2 -> v2026.11.15）。"""
+    return _MACOS_SUFFIX_RE.sub("", str(version_text or "").strip())
