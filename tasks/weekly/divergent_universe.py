@@ -2,6 +2,7 @@ from utils.game_options import game_option_enabled
 from module.screen import screen
 from module.automation import auto
 from module.config import cfg
+from module.config.platform import get_control_backend
 from module.logger import log
 from module.automation.screenshot import Screenshot
 from module.notification.notification import NotificationLevel
@@ -473,7 +474,7 @@ class DivergentUniverse:
         return width * height
 
     def process_event_stage(self):
-        stable_mode = cfg.cloud_game_enable or cfg.weekly_divergent_stable_mode
+        stable_mode = get_control_backend(cfg) == "cloud" or cfg.weekly_divergent_stable_mode
         window = Screenshot.get_window(cfg.game_title_name)
         win_x, _, width, _ = Screenshot.get_window_region(window)
         screen_center_x = win_x + width // 2
@@ -755,7 +756,7 @@ class DivergentUniverse:
         enemy_crop = (675 / 1920, 41 / 1080, 274 / 1920, 37 / 1080)
         for attempt in range(3):
             time.sleep(2)
-            sprint = not cfg.cloud_game_enable and not cfg.weekly_divergent_stable_mode
+            sprint = get_control_backend(cfg) != "cloud" and not cfg.weekly_divergent_stable_mode
             auto.press_key_down("w")
             try:
                 time.sleep(0.2)
@@ -1018,7 +1019,7 @@ class DivergentUniverse:
     def process_random_door(self, stable_mode=False, timeout=15):
         if self.stage_finish:
             return True
-        if cfg.cloud_game_enable or cfg.weekly_divergent_stable_mode:
+        if get_control_backend(cfg) == "cloud" or cfg.weekly_divergent_stable_mode:
             stable_mode = True
         window = Screenshot.get_window(cfg.game_title_name)
         win_x, _, width, _ = Screenshot.get_window_region(window)
@@ -1574,11 +1575,12 @@ class DivergentUniverse:
 
     @staticmethod
     def reveal_event_confirm():
-        for attempt in range(7):
+        max_drags = 2
+        for attempt in range(max_drags + 1):
             # 与后续点击使用相同的识别范围和包含匹配，兼容按钮位置变化及 OCR 合并文字。
             if auto.find_element("确定", "text", max_retries=2, retry_delay=0.5, include=True):
                 return True
-            if attempt == 6:
+            if attempt == max_drags:
                 break
             # 事件背景和选中框有动画。松手前停顿消除惯性，再重新识别按钮，
             # 避免把背景持续变化误判为列表还在移动。

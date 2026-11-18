@@ -1,5 +1,6 @@
 from module.screen import screen
 from module.config import cfg
+from module.config.platform import get_control_backend
 from module.logger import log
 from module.automation import auto
 from module.notification.notification import NotificationLevel
@@ -219,7 +220,7 @@ class Universe:
         if Universe._guard_non_windows("运行"):
             return False
 
-        if cfg.cloud_game_enable and cfg.browser_headless_enable:
+        if get_control_backend(cfg) == "cloud" and cfg.browser_headless_enable:
             log.error("模拟宇宙不支持无界面模式运行")
             return False
 

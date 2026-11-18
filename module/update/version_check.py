@@ -13,6 +13,8 @@ import sys
 import time
 import threading
 from dataclasses import dataclass
+from html.parser import HTMLParser
+from urllib.parse import quote, unquote, urljoin, urlsplit
 
 import requests
 
@@ -35,7 +37,7 @@ class UpdateInfo:
     sha256: str = ""      # 下载文件 SHA-256（如果更新源提供）
     release_note: str = ""   # 更新日志（Markdown）
     html_url: str = ""       # 发布页面 URL（仅 GitHub 来源有值）
-    api_base: str = ""       # 本次成功使用的 GitHub API 地址（含镜像前缀）
+    api_base: str | None = ""  # GitHub API 地址（含镜像前缀），None 表示来自 Releases 页面
 
 
 class VersionCheckError(RuntimeError):
@@ -180,9 +182,10 @@ def pick_asset(assets: list[dict], full: bool = True) -> dict | None:
     """从 release assets 中挑选匹配的资源对象。"""
     for asset in assets:
         url = asset.get("browser_download_url", "")
-        if full and "full" in url:
-            return asset
-        if not full and "full" not in url:
+        if not url:
+            continue
+        filename = asset.get("name") or urlsplit(url).path.rsplit("/", 1)[-1]
+        if filename.lower().endswith((".7z", ".zip")) and ("full" in filename) == full:
             return asset
     return None
 
@@ -323,13 +326,174 @@ def validate_mirrorchyan_cdk(
 
 # ── GitHub API ───────────────────────────────────────────────────────
 
+def get_github_api_auth_headers() -> dict[str, str]:
+    """读取仅供 api.github.com 使用的认证头。"""
+    from module.config import cfg
+
+    configured = cfg.get_value("github_token")
+    token = configured.strip() if isinstance(configured, str) else ""
+    token = token or os.environ.get("GITHUB_TOKEN", "").strip()
+    if not token:
+        return {}
+    if not (token.isascii() and token.isprintable()):
+        log.warning("GitHub Token 包含无效字符")
+        return {}
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _github_update_info(
+    version: str,
+    assets: list[dict],
+    full: bool,
+    *,
+    html_url: str,
+    release_note: str = "",
+    api_base: str | None = None,
+) -> UpdateInfo:
+    asset = pick_asset(assets, full=full)
+    if not asset and sys.platform == "darwin":
+        asset = next(
+            (a for a in assets if ".dmg" in (a.get("browser_download_url") or a.get("name") or "").lower()),
+            None,
+        )
+        if not asset and get_update_edition() == "local" and assets:
+            asset = assets[0]
+    if not asset:
+        if sys.platform == "darwin" and get_update_edition() == "local":
+            log.info(f"GitHub 发现上游新版本: {version}")
+            return UpdateInfo(
+                source="GitHub",
+                url=html_url,
+                file_name="",
+                version=version,
+                sha256="",
+                release_note=release_note,
+                html_url=html_url,
+                api_base=api_base,
+            )
+        raise VersionCheckError(tr("没有找到合适的下载URL"))
+
+    download_url = asset.get("browser_download_url", "")
+    file_name = asset.get("name") or download_url.rsplit("/", 1)[-1]
+    sha256 = normalize_sha256(asset.get("digest") or asset.get("sha256"))
+    log.info(f"GitHub 发现新版本: {version}")
+    return UpdateInfo(
+        source="GitHub",
+        url=download_url,
+        file_name=file_name,
+        version=version,
+        sha256=sha256,
+        release_note=release_note,
+        html_url=html_url,
+        api_base=api_base,
+    )
+
+
+def _github_release_path(link: str) -> str:
+    parts = urlsplit(urljoin("https://github.com", link))
+    if parts.scheme == "https" and parts.netloc == "github.com" and not (parts.query or parts.fragment):
+        return unquote(parts.path)
+    return ""
+
+
+def _release_tag(link: str, endpoint: str, releases_path: str) -> str:
+    prefix = f"{releases_path}/{endpoint}/"
+    path = _github_release_path(link)
+    if not path.startswith(prefix):
+        return ""
+    tag = path.removeprefix(prefix)
+    try:
+        Version(tag.lstrip("v"), strict=True)
+    except ValueError:
+        try:
+            Version(tag, strict=True)
+        except ValueError:
+            return ""
+    return tag
+
+
+class _GitHubReleasesParser(HTMLParser):
+    """读取发布列表的资源片段地址，或读取指定版本的资源片段。"""
+
+    def __init__(self, releases_path: str, version: str = ""):
+        super().__init__()
+        self.releases_path = releases_path
+        self.version = version
+        self.assets: list[dict] = []
+        self._download_prefix = f"{releases_path}/download/{version}/" if version else ""
+        self._asset = None
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "include-fragment" and not self.version:
+            self.version = _release_tag(attrs.get("src") or "", "expanded_assets", self.releases_path)
+        elif tag == "a" and self._download_prefix:
+            path = _github_release_path(attrs.get("href") or "")
+            if not path.startswith(self._download_prefix):
+                return
+            name = path.removeprefix(self._download_prefix)
+            if name and "/" not in name and "\\" not in name:
+                url = f"https://github.com{self.releases_path}/download/{quote(self.version, safe='')}/{quote(name, safe='')}"
+                self._asset = {"name": name, "browser_download_url": url}
+                self.assets.append(self._asset)
+        elif tag == "clipboard-copy" and self._asset is not None:
+            digest = normalize_sha256(attrs.get("value"))
+            if digest:
+                self._asset["digest"] = digest
+
+    def handle_endtag(self, tag):
+        if tag == "li":
+            self._asset = None
+
+
+def _check_github_releases_page(
+    prerelease: bool,
+    current_version: str,
+    full: bool,
+    proxies: dict[str, str] | None,
+    *,
+    repo: str,
+) -> UpdateInfo | None:
+    releases_path = f"/{repo}/releases"
+    releases_url = f"https://github.com{releases_path}"
+    url = releases_url if prerelease else releases_url + "/latest"
+    page = requests.get(url, timeout=10, proxies=proxies, allow_redirects=False)
+    if not prerelease and page.status_code in (301, 302, 303, 307, 308):
+        version = _release_tag(page.headers.get("Location", ""), "tag", releases_path)
+    elif page.status_code == 200:
+        parser = _GitHubReleasesParser(releases_path)
+        parser.feed(page.text)
+        version = parser.version
+    else:
+        raise VersionCheckError(f"HTTP {page.status_code}")
+    if not version:
+        raise VersionCheckError(tr("更新接口未返回有效版本信息，请稍后重试"))
+
+    if not is_update_available(version, current_version):
+        log.info(f"GitHub 确认已是最新版本: {current_version}")
+        return None
+
+    tag = quote(version, safe="")
+    assets = requests.get(
+        f"{releases_url}/expanded_assets/{tag}",
+        timeout=10,
+        proxies=proxies,
+        allow_redirects=False,
+    )
+    if assets.status_code != 200:
+        raise VersionCheckError(f"HTTP {assets.status_code}")
+    parser = _GitHubReleasesParser(releases_path, version)
+    parser.feed(assets.text)
+    return _github_update_info(version, parser.assets, full, html_url=f"{releases_url}/tag/{tag}")
+
+
 def _check_github(
     prerelease: bool,
     current_version: str,
     full: bool = True,
     proxies: dict[str, str] | None = None,
 ) -> UpdateInfo | None:
-    """通过 GitHub API 检测更新。
+    """通过 GitHub API 检测更新，返回 403 时回退到 GitHub Releases 页面。
 
     返回 UpdateInfo 如果有新版本；返回 None 如果已是最新。
     """
@@ -339,15 +503,23 @@ def _check_github(
     else:
         suffix = "/releases?per_page=1" if prerelease else "/releases/latest"
         urls = [base + suffix for base in get_github_api_bases()]
-    fastest_api = _find_fastest_api(urls, proxies=proxies)
+    auth_headers = get_github_api_auth_headers()
+    first_api = urls[0] if auth_headers else _find_fastest_api(urls, proxies=proxies)
     last_error = None
+    http_error = ""
     # 测速成功只代表 HTTP 可达；响应内容异常时依次尝试其他接口，每个地址只请求一次。
-    for api_url in dict.fromkeys([fastest_api, *urls]):
+    for api_url in dict.fromkeys([first_api, *urls]):
         log.debug(f"GitHub API: {api_url}")
         try:
-            resp = requests.get(api_url, timeout=10, proxies=proxies)
+            auth = {}
+            if auth_headers and api_url == urls[0]:
+                auth = {"headers": auth_headers, "allow_redirects": False}
+            resp = requests.get(api_url, timeout=10, proxies=proxies, **auth)
+            if resp.status_code == 403:
+                break
             if resp.status_code != 200:
-                raise VersionCheckError(f"HTTP {resp.status_code}")
+                http_error = f"HTTP {resp.status_code}"
+                raise VersionCheckError(http_error)
             raw = resp.json()
             if prerelease:
                 if not isinstance(raw, list) or not raw:
@@ -366,54 +538,30 @@ def _check_github(
             last_error = error
             log.warning(f"GitHub 更新接口失败: {api_url}: {type(error).__name__}: {error}")
             continue
-        break
+        if not is_update_available(version, current_version):
+            log.info(f"GitHub 确认已是最新版本: {current_version}")
+            return None
+
+        return _github_update_info(
+            version,
+            release.get("assets", []),
+            full,
+            release_note=release.get("body", ""),
+            html_url=release.get("html_url", ""),
+            api_base=api_url.rsplit("/releases", 1)[0],
+        )
     else:
+        detail = f" ({http_error})" if http_error else ""
         raise VersionCheckError(
-            f"{tr('检测更新失败')}: {tr('更新接口未返回有效版本信息，请稍后重试')}"
+            f"{tr('检测更新失败')}: {tr('更新接口未返回有效版本信息，请稍后重试')}{detail}"
         ) from last_error
 
-    if not is_update_available(version, current_version):
-        log.info(f"GitHub 确认已是最新版本: {current_version}")
-        return None
-
-    assets = release.get("assets", [])
-    asset = pick_asset(assets, full=full)
-    if not asset and sys.platform == "darwin":
-        asset = next(
-            (a for a in assets if ".dmg" in (a.get("browser_download_url") or a.get("name") or "").lower()),
-            None,
-        )
-        if not asset and get_update_edition() == "local" and assets:
-            asset = assets[0]
-    if not asset:
-        if sys.platform == "darwin" and get_update_edition() == "local":
-            log.info(f"GitHub 发现上游新版本: {version}")
-            return UpdateInfo(
-                source="GitHub",
-                url=release.get("html_url", ""),
-                file_name="",
-                version=version,
-                sha256="",
-                release_note=release.get("body", ""),
-                html_url=release.get("html_url", ""),
-                api_base=api_url.rsplit("/releases", 1)[0],
-            )
-        raise VersionCheckError(tr("没有找到合适的下载URL"))
-
-    download_url = asset.get("browser_download_url", "")
-    file_name = asset.get("name") or download_url.rsplit("/", 1)[-1]
-    sha256 = normalize_sha256(asset.get("digest") or asset.get("sha256"))
-    log.info(f"GitHub 发现新版本: {version}")
-    return UpdateInfo(
-        source="GitHub",
-        url=download_url,
-        file_name=file_name,
-        version=version,
-        sha256=sha256,
-        release_note=release.get("body", ""),
-        html_url=release.get("html_url", ""),
-        api_base=api_url.rsplit("/releases", 1)[0],
-    )
+    log.warning(f"GitHub 更新接口返回 HTTP 403，改用 GitHub Releases 页面: {api_url}")
+    try:
+        return _check_github_releases_page(prerelease, current_version, full, proxies, repo=active_repo)
+    except Exception as error:
+        message = tr("读取 GitHub Releases 页面失败（GitHub API 返回 HTTP 403）")
+        raise VersionCheckError(f"{message} · {error}") from error
 
 
 # ── 统一入口 ─────────────────────────────────────────────────────────

@@ -6490,3 +6490,20 @@ msgid "更新接口未返回有效版本信息，请稍后重试"
 msgstr ""
 "The update service did not return valid version information. Please try "
 "again later."
+
+#: app/setting_interface.py:648
+msgid "总时限"
+msgstr "Time limit"
+
+#: app/setting_interface.py:649
+msgid "单次运行的分钟数，0 表示不限时"
+msgstr "Minutes per run; 0 means no limit"
+
+#: app/setting_interface.py:2631
+msgid "GitHub Token"
+msgstr "GitHub Token"
+
+#: module/update/version_check.py:488
+msgid "读取 GitHub Releases 页面失败（GitHub API 返回 HTTP 403）"
+msgstr ""
+"Could not load the GitHub Releases page (GitHub API returned HTTP 403)"

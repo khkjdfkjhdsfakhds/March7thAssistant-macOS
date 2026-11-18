@@ -57,6 +57,9 @@ hdiutil create \
   "$DMG_PATH"
 
 rm -rf "$STAGE_DIR"
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$DIST_APP" >/dev/null 2>&1 || true
+rm -rf "$DIST_APP"
+rmdir "$PROJECT_DIR/dist/share" 2>/dev/null || true
 
 (
   cd "$PROJECT_DIR/dist"

@@ -6323,3 +6323,19 @@ msgstr ""
 #: module/update/version_check.py:331
 msgid "更新接口未返回有效版本信息，请稍后重试"
 msgstr ""
+
+#: app/setting_interface.py:648
+msgid "总时限"
+msgstr "制限時間"
+
+#: app/setting_interface.py:649
+msgid "单次运行的分钟数，0 表示不限时"
+msgstr "1 回の実行時間（分）。0 で無制限"
+
+#: app/setting_interface.py:2631
+msgid "GitHub Token"
+msgstr "GitHub トークン"
+
+#: module/update/version_check.py:488
+msgid "读取 GitHub Releases 页面失败（GitHub API 返回 HTTP 403）"
+msgstr "GitHub Releases ページを取得できませんでした（GitHub API が HTTP 403 を返しました）"

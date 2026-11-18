@@ -84,6 +84,8 @@ swiftc -O \
 chmod +x "$PROJECT_DIR/tools/macos/pc_helper"
 
 echo "==> [2/8] Preparing bundle skeleton at $DIST_APP"
+mkdir -p "$(dirname "$DIST_APP")"
+touch "$PROJECT_DIR/dist/.metadata_never_index"
 rm -rf "$DIST_APP"
 mkdir -p \
   "$CONTENTS/MacOS" \
@@ -642,6 +644,10 @@ if [[ "$DIST_ONLY" -eq 0 ]]; then
     chmod 600 "$USER_DATA_DIR/config.yaml"
   fi
 
-  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$INSTALL_APP" >/dev/null 2>&1 || true
+  LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+  "$LSREGISTER" -u "$DIST_APP" >/dev/null 2>&1 || true
+  "$LSREGISTER" -u "$PROJECT_DIR/dist/share/$APP_NAME" >/dev/null 2>&1 || true
+  rm -rf "$DIST_APP" "$PROJECT_DIR/dist/share/$APP_NAME"
+  "$LSREGISTER" -f "$INSTALL_APP" >/dev/null 2>&1 || true
   echo "Installed: $INSTALL_APP"
 fi

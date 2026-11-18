@@ -12,6 +12,7 @@ from .card.comboboxsettingcard2 import ComboBoxSettingCard2, ComboBoxSettingCard
 from .card.switchsettingcard1 import SwitchSettingCard1, SwitchSettingCardWithAction, TimestampSwitchSettingCard, SwitchSettingCardTeam, SwitchSettingCardImmersifier, SwitchSettingCardGardenofplenty, SwitchSettingCardEchoofwar, SwitchSettingCardHotkey, SwitchSettingCardCloudGameStatus
 from .card.autostart_setting_card import AutostartSettingCard
 from .card.rangesettingcard1 import RangeSettingCard1
+from .card.spinboxsettingcard1 import SpinBoxSettingCard1
 from .card.pushsettingcard1 import CustomPushSettingCard, DualPushSettingCard, TriplePushSettingCard, PushSettingCardAction, PushSettingCardInstance, PushSettingCardInstanceChallengeCount, PushSettingCardNotifyTemplate, PushSettingCardMirrorchyan, PushSettingCardStr, PushSettingCardEval, PushSettingCardDate, PushSettingCardKey, PushSettingCardTeam, PushSettingCardFriends, PushSettingCardTeamWithSwap, PushSettingCardPowerPlan, InstanceTeamSettingCard
 from .card.timepickersettingcard1 import TimePickerSettingCard1
 from .card.expandable_switch_setting_card import ExpandableSwitchSettingCard, ExpandableWeeklyRelicSettingCard, ExpandableTimestampSwitchSettingCard, ExpandableComboBoxSettingCardUpdateSource, ExpandableComboBoxSettingCard, ExpandableComboBoxSettingCardInstanceType, ExpandableSwitchSettingCardEchoofwar
@@ -645,6 +646,13 @@ class SettingInterface(ScrollArea):
             tr("投资选项优先级"),
             "",
             texts={tr("策略优先"): "strategy", tr("图鉴优先"): "catalog"},
+        )
+        self.currencywarsTimeLimitCard = SpinBoxSettingCard1(
+            "currencywars_time_limit",
+            UiIcon.TIMER,
+            tr("总时限"),
+            tr("单次运行的分钟数，0 表示不限时"),
+            default=240,
         )
 
         self.UniverseGroup = SettingCardGroup(tr("差分宇宙"), self.scrollWidget)
@@ -2621,6 +2629,13 @@ class SettingInterface(ScrollArea):
             "update_download_proxy",
             empty_content=tr("留空则使用系统代理；支持 http:// 和 socks5://")
         )
+        self.githubTokenCard = PushSettingCardStr(
+            tr('修改'),
+            UiIcon.KEY,
+            tr('GitHub Token'),
+            'github_token',
+            password=True,
+        )
         self.mirrorchyanCdkCard = PushSettingCardMirrorchyan(
             tr('修改'),
             UiIcon.KEY,
@@ -2756,6 +2771,7 @@ class SettingInterface(ScrollArea):
         if self.currencywarsStrategyCard is not None:
             self.currencywarsStrategySelectCard.hide()
         self.CurrencywarsGroup.addSettingCard(self.currencywarsFastModeCard)
+        self.CurrencywarsGroup.addSettingCard(self.currencywarsTimeLimitCard)
 
         self.UniverseGroup.addSettingCard(self.weeklyDivergentEnableCard)
         self.UniverseGroup.addSettingCard(self.weeklyDivergentTypeCard)
@@ -2893,7 +2909,8 @@ class SettingInterface(ScrollArea):
         self.updateSourceCard.addSettingCards([
             self.checkUpdateCard,
             self.updateFullEnableCard,
-            self.updateDownloadProxyCard
+            self.updateDownloadProxyCard,
+            self.githubTokenCard,
         ])
         self.AboutGroup.addSettingCard(self.mirrorchyanCdkCard)
         self.AboutGroup.addSettingCard(self.languageCard)
