@@ -569,3 +569,33 @@ class TestDiagLogRotation:
         from module.config.config import _diag_rotated_path
         assert _diag_rotated_path().endswith(".1.log")
         assert _diag_rotated_path().endswith(".log")
+
+
+class TestCurrencyWarsAndThemeConfigCompatibility:
+    """v2026.11.20 配置模板与历史配置兼容检查。"""
+
+    def test_example_config_defaults_and_macos_flags(self, tmp_path):
+        from module.config.config import Config
+
+        user_cfg = tmp_path / "config.yaml"
+        config = Config.__new__(Config)
+        Config.__init__(config, "assets/config/version.txt", "assets/config/config.example.yaml", str(user_cfg))
+
+        assert config.get_value("ui_theme") == "auto"
+        assert config.get_value("currencywars_strategy") == "s2_anaxa_high"
+        assert config.get_value("playcover_enable") is True
+        assert config.get_value("playcover_transport") == "auto"
+        assert config.get_value("after_finish") == "None"
+        assert config.get_value("check_update") is False
+        assert config.get_value("use_fuel") is False
+        assert config.get_value("use_reserved_trailblaze_power") is False
+
+    def test_config_preserves_both_s2_anaxa_high_and_legacy_s2_anaxa(self, tmp_path):
+        from module.config.config import Config
+
+        for value in ("s2_anaxa_high", "s2_anaxa"):
+            path = tmp_path / f"config_{value}.yaml"
+            path.write_text(f"currencywars_strategy: {value}\n", encoding="utf-8")
+            config = Config.__new__(Config)
+            Config.__init__(config, "assets/config/version.txt", "assets/config/config.example.yaml", str(path))
+            assert config.get_value("currencywars_strategy") == value

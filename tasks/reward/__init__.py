@@ -2,6 +2,7 @@ from module.logger import log
 from module.screen import screen
 from module.config import cfg
 from module.automation import auto
+from tasks.base.task_steps import optional_reward
 from .mail import Mail
 from .assist import Assist
 from .dispatch import Dispatch
@@ -46,13 +47,15 @@ class RewardManager:
         log.hr("开始领取奖励", 0)
 
         for reward_type, (image_path, confidence, crop) in self.reward_mapping.items():
-            if self._find_reward(image_path, confidence, crop):
-                self.reward_instances[reward_type].start()
-            else:
-                reward_name = self._get_reward_name(reward_type)
-                log.info(f"未检测到{reward_name}奖励")
+            reward_name = self._get_reward_name(reward_type)
+            with optional_reward(f"{reward_name}奖励"):
+                if self._find_reward(image_path, confidence, crop):
+                    self.reward_instances[reward_type].start()
+                else:
+                    log.info(f"未检测到{reward_name}奖励")
 
         log.hr("完成", 2)
+        return True
 
     def check_and_collect_specific_reward(self, reward_type):
         reward_name = self._get_reward_name(reward_type)
@@ -61,10 +64,11 @@ class RewardManager:
 
         if reward_type in self.reward_mapping:
             image_path, confidence, crop = self.reward_mapping[reward_type]
-            if self._find_reward(image_path, confidence, crop):
-                result = self.reward_instances[reward_type].start()
-            else:
-                log.info(f"未检测到{reward_name}奖励")
+            with optional_reward(f"{reward_name}奖励"):
+                if self._find_reward(image_path, confidence, crop):
+                    result = self.reward_instances[reward_type].start()
+                else:
+                    log.info(f"未检测到{reward_name}奖励")
         else:
             log.error(f"未知的奖励类型： {reward_type}")
 

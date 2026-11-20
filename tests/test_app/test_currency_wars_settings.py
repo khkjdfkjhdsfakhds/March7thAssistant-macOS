@@ -6,17 +6,17 @@ from PySide6.QtCore import Qt
 
 from module.config.config import Config
 from tasks.weekly.currency_wars_strategy import (
-    DEFAULT_STRATEGY, HIGH_ANAXA, HIGH_FIREFLY, HIGH_SERVAL, PROMOTION_CAP_DIFFICULTY, STRATEGY_ID,
+    DEFAULT_STRATEGY, HIGH_ANAXA, HIGH_FIREFLY, HIGH_SERVAL, PROMOTION_CAP_DIFFICULTY,
 )
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="原生设置界面仅在 Windows 验证")
+@pytest.mark.skipif(sys.platform not in ("win32", "darwin"), reason="原生设置界面仅在桌面平台验证")
 @pytest.mark.parametrize(("saved_limit", "expected"), [(None, 240), ("bad", 240), (120, 120)])
 def test_currency_wars_time_limit_is_at_the_bottom_and_saves_minutes(qtbot, tmp_path, monkeypatch, saved_limit, expected):
     import app.setting_interface as settings
 
     path = tmp_path / "config.yaml"
-    contents = "currencywars_strategy: s2_anaxa\n"
+    contents = "currencywars_strategy: s2_anaxa_high\n"
     if saved_limit is not None:
         contents += f"currencywars_time_limit: {saved_limit}\n"
     path.write_text(contents, encoding="utf-8")
@@ -43,8 +43,8 @@ def test_currency_wars_time_limit_is_at_the_bottom_and_saves_minutes(qtbot, tmp_
     assert config.yaml.load(path.read_text(encoding="utf-8"))["currencywars_time_limit"] == 0
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="原生设置界面仅在 Windows 验证")
-@pytest.mark.parametrize("legacy", ("aglaea", "seele"))
+@pytest.mark.skipif(sys.platform not in ("win32", "darwin"), reason="原生设置界面仅在桌面平台验证")
+@pytest.mark.parametrize("legacy", ("aglaea", "seele", "s2_anaxa"))
 def test_currency_wars_old_config_requires_explicit_migration(qtbot, tmp_path, monkeypatch, legacy):
     import app.setting_interface as settings
 
@@ -60,21 +60,20 @@ def test_currency_wars_old_config_requires_explicit_migration(qtbot, tmp_path, m
     assert widget.currencywarsStrategyCard is not None
     widget.currencywarsStrategyCard.button.click()
     config._load_config()
-    assert config.get_value("currencywars_strategy") == STRATEGY_ID
-    assert widget.currencywarsStrategySelectCard.comboBox.currentData() == STRATEGY_ID
+    assert config.get_value("currencywars_strategy") == HIGH_ANAXA
+    assert widget.currencywarsStrategySelectCard.comboBox.currentData() == HIGH_ANAXA
     assert widget.currencywarsStrategyCard.isHidden()
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="原生设置界面仅在 Windows 验证")
+@pytest.mark.skipif(sys.platform not in ("win32", "darwin"), reason="原生设置界面仅在桌面平台验证")
 @pytest.mark.parametrize(("configured", "displayed"), [
-    (None, DEFAULT_STRATEGY),
+    (None, HIGH_ANAXA),
     (DEFAULT_STRATEGY, DEFAULT_STRATEGY),
-    (STRATEGY_ID, STRATEGY_ID),
     (HIGH_ANAXA, HIGH_ANAXA),
     (HIGH_FIREFLY, None),
     (HIGH_SERVAL, None),
 ])
-def test_currency_wars_settings_lists_default_and_both_anaxa_strategies(qtbot, tmp_path, monkeypatch, configured, displayed):
+def test_currency_wars_settings_lists_default_and_anaxa_strategies(qtbot, tmp_path, monkeypatch, configured, displayed):
     import app.setting_interface as settings
 
     path = tmp_path / "config.yaml"
@@ -89,10 +88,10 @@ def test_currency_wars_settings_lists_default_and_both_anaxa_strategies(qtbot, t
 
     assert widget.currencywarsStrategyCard is None
     combo = widget.currencywarsStrategySelectCard.comboBox
-    assert [combo.itemData(index) for index in range(combo.count())] == [DEFAULT_STRATEGY, STRATEGY_ID, HIGH_ANAXA]
+    assert [combo.itemData(index) for index in range(combo.count())] == [DEFAULT_STRATEGY, HIGH_ANAXA]
     assert combo.currentData() == displayed
     config._load_config()
-    assert config.get_value("currencywars_strategy") == (configured or DEFAULT_STRATEGY)
+    assert config.get_value("currencywars_strategy") == (configured or HIGH_ANAXA)
     if displayed is None:
         assert combo.text() == settings.tr("实验性")
         combo.setCurrentIndex(0)
@@ -100,12 +99,12 @@ def test_currency_wars_settings_lists_default_and_both_anaxa_strategies(qtbot, t
         assert config.get_value("currencywars_strategy") == DEFAULT_STRATEGY
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="原生设置界面仅在 Windows 验证")
+@pytest.mark.skipif(sys.platform not in ("win32", "darwin"), reason="原生设置界面仅在桌面平台验证")
 def test_currency_wars_unfinished_match_defaults_to_restart_and_saves_resume(qtbot, tmp_path, monkeypatch):
     import app.setting_interface as settings
 
     path = tmp_path / "config.yaml"
-    path.write_text("currencywars_strategy: s2_anaxa\n", encoding="utf-8")
+    path.write_text("currencywars_strategy: s2_anaxa_high\n", encoding="utf-8")
     config = Config.__new__(Config)
     Config.__init__(config, "assets/config/version.txt", "assets/config/config.example.yaml", str(path))
     monkeypatch.setattr("module.config.cfg", config)
@@ -123,7 +122,7 @@ def test_currency_wars_unfinished_match_defaults_to_restart_and_saves_resume(qtb
     assert config.get_value("currencywars_unfinished_match") == "resume"
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="原生设置界面仅在 Windows 验证")
+@pytest.mark.skipif(sys.platform not in ("win32", "darwin"), reason="原生设置界面仅在桌面平台验证")
 def test_currency_wars_investment_priority_defaults_to_strategy_and_saves_catalog(qtbot, tmp_path, monkeypatch):
     import app.setting_interface as settings
 
@@ -157,7 +156,7 @@ def test_currency_wars_investment_priority_defaults_to_strategy_and_saves_catalo
     assert config.get_value("currencywars_investment_priority") == "catalog"
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="原生设置界面仅在 Windows 验证")
+@pytest.mark.skipif(sys.platform not in ("win32", "darwin"), reason="原生设置界面仅在桌面平台验证")
 def test_currency_wars_quick_presets(qtbot, tmp_path, monkeypatch):
     import app.setting_interface as settings
 
@@ -182,7 +181,7 @@ def test_currency_wars_quick_presets(qtbot, tmp_path, monkeypatch):
     assert widget.currencywarsStrategySelectCard.isHidden()
     for button, expected in (
         (preset.leftButton, ("overclock", "lowest", DEFAULT_STRATEGY, True)),
-        (preset.middleButton, ("overclock", PROMOTION_CAP_DIFFICULTY, STRATEGY_ID, False)),
+        (preset.middleButton, ("overclock", PROMOTION_CAP_DIFFICULTY, HIGH_ANAXA, False)),
         (preset.rightButton, ("normal", "highest", HIGH_ANAXA, False)),
     ):
         button.click()

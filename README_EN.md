@@ -43,7 +43,7 @@ The original drives the PC client through Win32 screenshots and keyboard/mouse. 
 | macOS | 14 or later (developed on macOS 27 / Apple M4) |
 | PlayCover | **hguandl fork** with MaaTools, tested `4.0.0.maa`: <https://github.com/hguandl/PlayCover/releases>. Official PlayCover lacks MaaTools and will not work |
 | Game | Honkai: Star Rail iOS. Tested on global `com.HoYoverse.hkrpgoversea` with **Simplified Chinese** game text; CN server is `com.miHoYo.hkrpg` |
-| Python | 3.12+ |
+| Python | 3.12–3.14 |
 | uv | <https://docs.astral.sh/uv/> |
 | Git | included in Xcode Command Line Tools |
 
@@ -161,7 +161,7 @@ Download the latest release from [Releases](https://github.com/moesnow/March7thA
 
 If you are completely new to this, use the packaged release above. You can ignore the rest of this section.
 
-Python 3.12 or newer is required.
+Use Python 3.12 through 3.14.
 
 On Windows, if you launch from a terminal, it is recommended to open PowerShell, Windows Terminal, or CMD as Administrator. On Windows 11 24H2 or later, you can also use [Sudo for Windows](https://learn.microsoft.com/zh-cn/windows/advanced-settings/sudo/).
 

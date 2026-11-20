@@ -174,7 +174,6 @@ class Daily:
     @staticmethod
     def _run_weekly_divergent():
         divergent = DivergentUniverse()
-        screen.change_to("divergent_main")
         for _ in range(3):
             if divergent.check_divergent_universe_score():
                 return True

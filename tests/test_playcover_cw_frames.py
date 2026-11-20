@@ -412,7 +412,7 @@ def _run_frame_action(monkeypatch, frame: Frame, after: Frame, runner, *, advanc
         currencywars_rank_difficulty="current",
         currencywars_fast_mode=False,
         currencywars_bonus_enable=False,
-        currencywars_strategy="s2_anaxa",
+        currencywars_strategy="s2_anaxa_high",
         save_timestamp=Mock(),
         currencywars_timestamp=1,
         refresh_hour=4,
@@ -622,7 +622,7 @@ def test_playcover_mobile_item_box_real_error_recovery(monkeypatch):
         assert board_after.mobile_layout is True
 
         now = [0.0]
-        monkeypatch.setattr(cw, "cfg", SimpleNamespace(currencywars_strategy="s2_anaxa", get_value=lambda _k, d=None: d))
+        monkeypatch.setattr(cw, "cfg", SimpleNamespace(currencywars_strategy="s2_anaxa_high", get_value=lambda _k, d=None: d))
         monkeypatch.setattr(cw, "auto", Mock())
         monkeypatch.setattr(cw, "get_ui_profile", lambda _: SimpleNamespace(name="mobile_1080"))
         monkeypatch.setattr(cw, "pause_ctl", Mock())

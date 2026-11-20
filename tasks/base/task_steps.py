@@ -1,3 +1,6 @@
+from contextlib import contextmanager
+
+from module.automation.background_input import GameWindowLost, InputInterrupted
 from module.config.platform import ProfileAssetNotFoundError, TouchProfileInputError
 from module.game.cg_client import CGHelperError
 from module.logger import log
@@ -12,7 +15,23 @@ class GameRecoveryError(RuntimeError):
     preserve_game = True
 
 
-FATAL_GAME_ERRORS = (CGHelperError, ProfileAssetNotFoundError, TouchProfileInputError, GameRecoveryError)
+FATAL_GAME_ERRORS = (CGHelperError, GameWindowLost, InputInterrupted,
+                     ProfileAssetNotFoundError, TouchProfileInputError, GameRecoveryError)
+
+
+@contextmanager
+def optional_reward(name):
+    """局部领奖故障只记待核对，由下一项任务自行导航。"""
+    try:
+        yield
+    except Exception as error:
+        if isinstance(error, FATAL_GAME_ERRORS) and not getattr(error, "frame_only", False):
+            raise
+        try:
+            log.warning(f"{name}待核对：{error}")
+        except Exception:
+            # 记录失败也不能使可选步骤中断后续任务。
+            pass
 
 
 def run_steps(steps, on_step=None):

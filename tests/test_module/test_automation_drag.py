@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 import sys
+from unittest.mock import Mock
 
 import pytest
 
@@ -25,6 +26,21 @@ def test_drag_mouse_converts_relative_coordinates():
 
     assert result is True
     assert events == [("drag", 292, 266, 1828, 914, 0.1)]
+
+
+def test_move_mouse_converts_relative_coordinates_without_pressing():
+    events = []
+    automation = create_automation(events)
+    automation.mouse_move = lambda *args: events.append(("move", *args))
+    automation.take_screenshot = Mock()
+
+    assert automation.move_mouse((0.1, 0.2)) is True
+    assert automation.move_mouse((1, 1)) is True
+    assert events == [("move", 292, 266), ("move", 2019, 1129)]
+    automation.take_screenshot.assert_not_called()
+    with pytest.raises(ValueError):
+        automation.move_mouse((1.2, 0.5))
+    assert len(events) == 2
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="本地输入后端仅在 Windows 使用")

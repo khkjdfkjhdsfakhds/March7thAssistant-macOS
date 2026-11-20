@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 from module.ocr.ocr import (
     OCR,
     OCR_MODE_CPU,
@@ -106,11 +109,67 @@ class TestOCRReplaceStrings:
         replaced = ocr.replace_strings(results)
         assert replaced[0]["txt"] == "world"
 
+    def test_replacements_preserve_all_configured_instance_names(self):
+        ocr = self._create_ocr_with_mock_logger()
+        config = Path(__file__).resolve().parents[2] / "assets/config"
+        ocr.replacements = json.loads((config / "ocr_replacements.json").read_text(encoding="utf-8"))
+        instances = json.loads((config / "instance_names.json").read_text(encoding="utf-8"))
+        names = [name for group in instances.values() for name in group if name != "无"]
+        rows = [{"txt": name} for name in names]
+        assert [row["txt"] for row in ocr.replace_strings(rows)] == names
+
+    def test_calyx_name_corrections_restore_missing_quotes_once(self):
+        ocr = self._create_ocr_with_mock_logger()
+        config = Path(__file__).resolve().parents[2] / "assets/config/ocr_replacements.json"
+        ocr.replacements = json.loads(config.read_text(encoding="utf-8"))
+        for location, suffix in (("世界尽头", "酒馆"), ("葬忆彼岸", "时光归墟"), ("辉痕圣林", "神悟树庭")):
+            aliases = (location, f"{location}{suffix}", f"{location}」{suffix}", f"「{location}{suffix}")
+            rows = [{"txt": alias} for alias in aliases]
+            expected = [f"「{location}」{suffix}"] * len(rows)
+            assert [row["txt"] for row in ocr.replace_strings(rows)] == expected
+            assert [row["txt"] for row in ocr.replace_strings(rows)] == expected
+
+    def test_calyx_venue_restores_partial_trademark(self):
+        ocr = self._create_ocr_with_mock_logger()
+        config = Path(__file__).resolve().parents[2] / "assets/config/ocr_replacements.json"
+        ocr.replacements = json.loads(config.read_text(encoding="utf-8"))
+        rows = [{"txt": "苏乐达T热砂海选会场"}]
+        assert ocr.replace_strings(rows)[0]["txt"] == "苏乐达™热砂海选会场"
+
 
 class TestDisableOpenVINOTelemetry:
     def test_disable_openvino_telemetry_does_not_create_consent_files(self, monkeypatch, tmp_path):
+        import sys
+        from types import ModuleType
         from unittest.mock import MagicMock
-        from openvino_telemetry.utils.opt_in_checker import ConsentCheckResult, OptInChecker
+
+        try:
+            from openvino_telemetry.utils.opt_in_checker import ConsentCheckResult, OptInChecker
+        except ModuleNotFoundError:
+            class ConsentCheckResult:
+                UNDECIDED = "undecided"
+                DECLINED = "declined"
+
+            class OptInChecker:
+                def check(self, enable_opt_in_dialog=False, disable_in_ci=False):
+                    return ConsentCheckResult.UNDECIDED
+
+                def create_or_check_consent_dir(self):
+                    return True
+
+                def update_result(self, result):
+                    return True
+
+            pkg = ModuleType("openvino_telemetry")
+            utils_pkg = ModuleType("openvino_telemetry.utils")
+            checker_mod = ModuleType("openvino_telemetry.utils.opt_in_checker")
+            checker_mod.ConsentCheckResult = ConsentCheckResult
+            checker_mod.OptInChecker = OptInChecker
+            utils_pkg.opt_in_checker = checker_mod
+            pkg.utils = utils_pkg
+            monkeypatch.setitem(sys.modules, "openvino_telemetry", pkg)
+            monkeypatch.setitem(sys.modules, "openvino_telemetry.utils", utils_pkg)
+            monkeypatch.setitem(sys.modules, "openvino_telemetry.utils.opt_in_checker", checker_mod)
 
         original_check = OptInChecker.check
         original_create_or_check_consent_dir = OptInChecker.create_or_check_consent_dir

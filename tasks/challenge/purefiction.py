@@ -7,6 +7,7 @@ from module.screen import screen
 from module.automation import auto
 from module.config import cfg
 from module.logger import log
+from tasks.base.task_steps import optional_reward
 
 
 class PureFiction(BaseChallenge):
@@ -211,6 +212,7 @@ class PureFiction(BaseChallenge):
         log.error("战斗超时")
         return False
 
+    @optional_reward("虚构叙事奖励")
     def collect_rewards(self):
         '''领取奖励'''
         if self.max_level > 0:

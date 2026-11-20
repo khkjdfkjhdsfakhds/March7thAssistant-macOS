@@ -2,13 +2,13 @@ from PySide6.QtCore import Qt, QUrl, QObject, QEvent, QPoint, QThread, Signal, Q
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QWidget, QLabel, QFileDialog, QVBoxLayout, QStackedWidget, QSpacerItem, QScroller, QScrollerProperties, QScrollArea, QFrame, QApplication
 from qfluentwidgets import FluentIcon as FIF
-from qfluentwidgets import SettingCardGroup, PushSettingCard, ScrollArea, InfoBar, InfoBarPosition, PrimaryPushSettingCard, MessageBox, PushButton, StateToolTip
+from qfluentwidgets import SettingCardGroup, PushSettingCard, ScrollArea, InfoBar, InfoBarPosition, PrimaryPushSettingCard, MessageBox, PushButton, StateToolTip, ExpandSettingCard
 from app.sub_interfaces.accounts_interface import accounts_interface
 from .common.style_sheet import StyleSheet
 from .common.icon import UiIcon, BrandIcon
 from .components.pivot import SettingPivot
 from .card.comboboxsettingcard1 import ComboBoxSettingCard1
-from .card.comboboxsettingcard2 import ComboBoxSettingCard2, ComboBoxSettingCardUpdateSource, ComboBoxSettingCardLog, ComboBoxSettingCardLanguage
+from .card.comboboxsettingcard2 import ComboBoxSettingCard2, ComboBoxSettingCardUpdateSource, ComboBoxSettingCardLog, ComboBoxSettingCardLanguage, ComboBoxSettingCardTheme
 from .card.switchsettingcard1 import SwitchSettingCard1, SwitchSettingCardWithAction, TimestampSwitchSettingCard, SwitchSettingCardTeam, SwitchSettingCardImmersifier, SwitchSettingCardGardenofplenty, SwitchSettingCardEchoofwar, SwitchSettingCardHotkey, SwitchSettingCardCloudGameStatus
 from .card.autostart_setting_card import AutostartSettingCard
 from .card.rangesettingcard1 import RangeSettingCard1
@@ -24,8 +24,9 @@ from module.localization import tr, tn
 from module.localization.languages import AUTO_LANGUAGE, available_languages
 from tasks.weekly.divergent_universe import DivergentUniverse
 from tasks.weekly.currency_wars_strategy import (
+    DEFAULT_STRATEGY as CURRENCY_WARS_DEFAULT,
     HIGH_ANAXA,
-    STRATEGY_ID as CURRENCY_WARS_STRATEGY,
+    PROMOTION_CAP_DIFFICULTY,
     STRATEGY_NAMES,
 )
 from tasks.base.tasks import start_task
@@ -580,9 +581,10 @@ class SettingInterface(ScrollArea):
             "currencywars_timestamp",
             tr("上次检测到完成货币战争积分奖励的时间")
         )
-        self.currencywarsPresetCard = DualPushSettingCard(
-            tr('提升晋升等级'),
-            tr('提升职级等级'),
+        self.currencywarsPresetCard = TriplePushSettingCard(
+            tr('刷周积分'),
+            tr('刷晋升点'),
+            tr('冲职级'),
             UiIcon.WAND,
             tr('快捷配置')
         )
@@ -604,7 +606,12 @@ class SettingInterface(ScrollArea):
             UiIcon.GAUGE,
             tr('职级难度'),
             '',
-            texts={tr('最高职级'): 'highest', tr('当前职级'): 'current', tr('最低职级'): 'lowest'}
+            texts={
+                tr('最高职级'): 'highest',
+                tr('当前职级'): 'current',
+                tr('最低职级'): 'lowest',
+                tr('晋升点封顶档'): PROMOTION_CAP_DIFFICULTY,
+            }
         )
         self.currencywarsUnfinishedMatchCard = ComboBoxSettingCard2(
             "currencywars_unfinished_match",
@@ -615,7 +622,7 @@ class SettingInterface(ScrollArea):
         )
         self.currencywarsStrategyCard = None
         configured_strategy = cfg.get_value("currencywars_strategy")
-        visible_strategies = (CURRENCY_WARS_STRATEGY, HIGH_ANAXA)
+        visible_strategies = (CURRENCY_WARS_DEFAULT, HIGH_ANAXA)
         self.currencywarsStrategySelectCard = ExpandableComboBoxSettingCard(
             "currencywars_strategy",
             UiIcon.LIST,
@@ -627,9 +634,9 @@ class SettingInterface(ScrollArea):
             combo = self.currencywarsStrategySelectCard.comboBox
             combo.setCurrentIndex(-1)
             combo.setPlaceholderText(tr("实验性"))
-        elif configured_strategy not in (*visible_strategies, "default"):
+        elif configured_strategy not in visible_strategies:
             self.currencywarsStrategyCard = PushSettingCard(
-                tr("改用连击那刻夏（S2）"),
+                tr("改用连击那刻夏"),
                 UiIcon.LIST,
                 tr("请更新货币战争策略"),
             )
@@ -1175,6 +1182,7 @@ class SettingInterface(ScrollArea):
             tr('任务完成后列车长唱歌提示帕！'),
             "play_audio"
         )
+        self.themeCard = ComboBoxSettingCardTheme(self.parent)
         self.closeWindowActionCard = ComboBoxSettingCard2(
             "close_window_action",
             FIF.CLOSE,
@@ -2876,6 +2884,7 @@ class SettingInterface(ScrollArea):
             self.ScriptPathCard
         ])
         self.ProgramGroup.addSettingCard(self.playAudioCard)
+        self.ProgramGroup.addSettingCard(self.themeCard)
         self.ProgramGroup.addSettingCard(self.closeWindowActionCard)
         self.ProgramGroup.addSettingCard(self.windowMemoryCard)
 
@@ -2973,6 +2982,45 @@ class SettingInterface(ScrollArea):
         if self.width() > 0:
             self.pivotScrollArea.setFixedWidth(max(self.width() - 40, 400))
 
+    def _expandableCards(self):
+        # 使用稳定的 Python 属性名，不以译文或显示顺序标识卡片。
+        cards = {}
+        for name, value in vars(self).items():
+            if isinstance(value, ExpandSettingCard):
+                cards[name] = value
+            elif isinstance(value, list):
+                for index, card in enumerate(value):
+                    if isinstance(card, ExpandSettingCard):
+                        cards[f'{name}:{index}'] = card
+        return cards
+
+    def captureViewState(self):
+        return {
+            'tab': self.stackedWidget.currentWidget().objectName(),
+            'scroll': self.verticalScrollBar().value(),
+            'pivot_scroll': self.pivotScrollArea.horizontalScrollBar().value(),
+            'language_focus': self.languageCard.comboBox.hasFocus(),
+            'expanded': {name: card.isExpand for name, card in self._expandableCards().items()},
+        }
+
+    def restoreViewState(self, state):
+        for name, card in self._expandableCards().items():
+            if name in state['expanded']:
+                card.setExpand(state['expanded'][name])
+                card.expandAni.setCurrentTime(card.expandAni.duration())
+        for index in range(self.stackedWidget.count()):
+            widget = self.stackedWidget.widget(index)
+            if widget.objectName() == state['tab'] and not self.pivot.items[state['tab']].isHidden():
+                self.stackedWidget.setCurrentWidget(widget)
+                break
+        self.stackedWidget.setFixedHeight(self.stackedWidget.currentWidget().sizeHint().height())
+        self.vBoxLayout.activate()
+        self.scrollWidget.adjustSize()
+        self.verticalScrollBar().setValue(state['scroll'])
+        self.pivotScrollArea.horizontalScrollBar().setValue(state['pivot_scroll'])
+        if state.get('language_focus'):
+            self.languageCard.comboBox.setFocus(Qt.FocusReason.OtherFocusReason)
+
     def __connectSignalToSlot(self):
         def connect_expand_state(card):
             if hasattr(card, "expandStateChanged"):
@@ -2982,7 +3030,8 @@ class SettingInterface(ScrollArea):
         self.gamePathCard.clicked.connect(self.__onGamePathCardClicked)
         self.launcherPathCard.clicked.connect(self.__onLauncherPathCardClicked)
         self.ScriptPathCard.clicked.connect(self.__onScriptPathCardClicked)
-        self.currencywarsPresetCard.leftClicked.connect(self.__applyCurrencywarsPromotionPreset)
+        self.currencywarsPresetCard.leftClicked.connect(self.__applyCurrencywarsWeeklyPreset)
+        self.currencywarsPresetCard.middleClicked.connect(self.__applyCurrencywarsPromotionPreset)
         self.currencywarsPresetCard.rightClicked.connect(self.__applyCurrencywarsRankPreset)
         self.fightPresetCard.leftClicked.connect(self.__applyFightRangedPreset)
         self.fightPresetCard.middleClicked.connect(self.__applyFightAcheronPreset)
@@ -3472,23 +3521,29 @@ class SettingInterface(ScrollArea):
         self.__applyFightPreset('reward', tr('仅获取特殊物品'))
 
     def __applyCurrencywarsStrategy(self):
-        cfg.set_value("currencywars_strategy", CURRENCY_WARS_STRATEGY)
+        cfg.set_value("currencywars_strategy", HIGH_ANAXA)
         combo = self.currencywarsStrategySelectCard.comboBox
         with QSignalBlocker(combo):
-            combo.setCurrentIndex(combo.findData(CURRENCY_WARS_STRATEGY))
+            combo.setCurrentIndex(combo.findData(HIGH_ANAXA))
         self.currencywarsStrategyCard.hide()
         self.currencywarsStrategySelectCard.show()
 
+    def __applyCurrencywarsWeeklyPreset(self):
+        self.__applyCurrencywarsPreset(
+            "overclock", "lowest", CURRENCY_WARS_DEFAULT, fast=True,
+            message=self.currencywarsPresetCard.leftButton.text(),
+        )
+
     def __applyCurrencywarsPromotionPreset(self):
         self.__applyCurrencywarsPreset(
-            "overclock", "lowest", CURRENCY_WARS_STRATEGY, fast=True,
-            message=tr('当前为“提升晋升等级”模式'),
+            "overclock", PROMOTION_CAP_DIFFICULTY, HIGH_ANAXA, fast=False,
+            message=self.currencywarsPresetCard.middleButton.text(),
         )
 
     def __applyCurrencywarsRankPreset(self):
         self.__applyCurrencywarsPreset(
             "normal", "highest", HIGH_ANAXA, fast=False,
-            message=tr('当前为“提升职级等级”模式'),
+            message=self.currencywarsPresetCard.rightButton.text(),
         )
 
     def __applyCurrencywarsPreset(self, mode, difficulty, strategy, *, fast, message):

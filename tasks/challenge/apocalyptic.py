@@ -7,6 +7,7 @@ from module.screen import screen
 from module.automation import auto
 from module.config import cfg
 from module.logger import log
+from tasks.base.task_steps import optional_reward
 
 
 class Apocalyptic(BaseChallenge):
@@ -333,6 +334,7 @@ class Apocalyptic(BaseChallenge):
         else:
             log.error(f"click error")
 
+    @optional_reward("末日幻影奖励")
     def collect_rewards(self):
         '''领取奖励'''
         if self.max_level > 0:

@@ -6,6 +6,33 @@ import os
 import subprocess
 import sys
 import darkdetect
+from module.config import cfg
+
+
+def applyTheme(window, theme=None):
+    """Apply the session theme or the saved preference; auto follows the system."""
+    evernight_selected = window is not None and window._evernight.selected
+    preference = 'evernight' if evernight_selected else cfg.get_value('ui_theme', 'auto')
+    if theme is not None:
+        if preference != 'auto':
+            return
+    else:
+        theme = {'light': Theme.LIGHT, 'dark': Theme.DARK, 'evernight': Theme.DARK}.get(preference)
+        if theme is None:
+            theme = Theme.DARK if darkdetect.isDark() else Theme.LIGHT
+    # setTheme() 会刷新全部控件的样式，即使传入的主题没有变化。
+    if theme == qconfig.theme:
+        return
+
+    is_minimized_to_tray = hasattr(window, 'tray_icon') and not window.isVisible() and window.tray_icon.isVisible()
+    setTheme(theme, lazy=not is_minimized_to_tray)
+    if window is not None:
+        if sys.platform == "darwin":
+            if hasattr(window, '_syncMacAppearance'):
+                QTimer.singleShot(100, window, window._syncMacAppearance)
+        else:
+            # Refresh Mica after the light-to-dark transition (PyQt-Frameless-Window #158).
+            QTimer.singleShot(500, window, lambda: window.setMicaEffectEnabled(True))
 
 
 class SystemThemeListener(QThread):
@@ -90,21 +117,6 @@ def checkThemeChange(self):
 
     在 MainWindow 中调用，self 是 MainWindow 实例
     """
-    def handle_theme_change(theme):
-        """根据程序是否最小化到托盘决定 lazy 参数：
-        - 如果窗口不可见且托盘图标可见（认为已最小化到托盘），则立即应用主题（lazy=False）
-        - 否则使用默认延迟应用（lazy=True）
-        """
-        is_minimized_to_tray = hasattr(self, 'tray_icon') and (not self.isVisible()) and self.tray_icon.isVisible()
-        setTheme(theme, lazy=not is_minimized_to_tray)
-        if sys.platform == "darwin":
-            if hasattr(self, '_syncMacAppearance'):
-                QTimer.singleShot(100, self._syncMacAppearance)
-        else:
-            # 从 Light 主题切换至 Dark 主题时窗口背景无法正常切换
-            # 解决方法 https://github.com/zhiyiYo/PyQt-Frameless-Window/issues/158
-            QTimer.singleShot(500, lambda: self.setMicaEffectEnabled(True))
-
     def on_init_completed(is_supported):
         if is_supported:
             pass
@@ -116,7 +128,7 @@ def checkThemeChange(self):
 
     # 创建监听器
     self.themeListener = SystemThemeListener(self)
-    self.themeListener.systemThemeChanged.connect(handle_theme_change)
+    self.themeListener.systemThemeChanged.connect(lambda theme: applyTheme(self, theme))
     self.themeListener.initCompleted.connect(on_init_completed)
 
     # 启动线程（阻塞调用会在线程中运行）
