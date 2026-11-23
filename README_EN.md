@@ -65,7 +65,7 @@ git clone https://github.com/luoxia001/March7thAssistant-macOS.git
 ```
 
 ```bash
-cd March7thAssistant-macOS && uv sync
+cd March7thAssistant-macOS && uv sync && uv run python -m tools.i18n compile
 ```
 
 5. Optional desktop icon:
@@ -170,6 +170,7 @@ On Windows, if you launch from a terminal, it is recommended to open PowerShell,
 git clone --recurse-submodules https://github.com/moesnow/March7thAssistant
 cd March7thAssistant
 pip install -r requirements.txt
+python -m tools.i18n compile
 
 # Launch the GUI
 python app.py
@@ -180,6 +181,8 @@ python main.py
 # Update
 git pull
 git submodule update --init --recursive
+pip install -r requirements.txt
+python -m tools.i18n compile
 ```
 
 If you use `uv`, it is recommended to use the built-in `pyproject.toml` workflow directly:
@@ -189,6 +192,7 @@ If you use `uv`, it is recommended to use the built-in `pyproject.toml` workflow
 git clone --recurse-submodules https://github.com/moesnow/March7thAssistant
 cd March7thAssistant
 uv sync
+uv run python -m tools.i18n compile
 
 # Launch the GUI
 uv run python app.py

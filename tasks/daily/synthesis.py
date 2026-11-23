@@ -5,9 +5,9 @@ from module.logger import log
 from module.notification.notification import NotificationLevel
 from tasks.base.base import Base
 from tasks.base.list_drag import drag_list
+from tasks.power.policy import normalize
 import re
 import time
-import unicodedata
 
 
 class Synthesis:
@@ -32,6 +32,8 @@ class Synthesis:
                                 auto.click_element("./assets/images/share/synthesis/nuclear.png", "image", 0.85, max_retries=10)
                                 time.sleep(2)
                                 if auto.find_element("./assets/images/share/synthesis/nuclear_selected.png", "image", 0.85, max_retries=10):
+                                    if not Synthesis._verify_training_recipe():
+                                        return False
                                     if auto.click_element("./assets/images/zh_CN/synthesis/synthesis_button.png", "image", 0.9, max_retries=10):
                                         time.sleep(2)
                                         if auto.click_element("./assets/images/zh_CN/base/confirm.png", "image", 0.9, max_retries=10):
@@ -50,7 +52,7 @@ class Synthesis:
     def _verify_training_recipe():
         auto.take_screenshot(crop=(0.51, 0.63, 0.41, 0.23))
         auto.perform_ocr()
-        text = "\n".join("".join(unicodedata.normalize("NFKC", value or "").split()) for _, (value, _) in auto.ocr_result)
+        text = "\n".join(normalize(value) for _, (value, _) in auto.ocr_result)
         amount = re.search(r"^合成数量:?\s*(\d+)$", text, re.MULTILINE)
         materials = re.search(r"^(\d+)/3$", text, re.MULTILINE)
         if not amount or int(amount[1]) != 1 or not materials:
@@ -82,6 +84,10 @@ class Synthesis:
                                     log.info("自塑尘脂已达上限，无需合成")
                                     cfg.save_timestamp("asset_self_molding_resin_timestamp")
                                     return True
+                                if auto.find_element("合成所需材料不足", "text",
+                                                     crop=(0.45, 0.72, 0.40, 0.16), include=True):
+                                    log.warning("自塑尘脂合成材料不足，保留本月任务，下次运行重试")
+                                    return None
                                 if auto.click_element("./assets/images/share/synthesis/plus.png", "image", 0.9, crop=(1520 / 1920, 832 / 1080, 86 / 1920, 69 / 1080)):
                                     time.sleep(2)
                                 if auto.click_element("./assets/images/zh_CN/synthesis/synthesis_button.png", "image", 0.9, max_retries=10):

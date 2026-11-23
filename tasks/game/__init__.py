@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 import os
 import sys
 import time
@@ -13,20 +14,30 @@ from utils.console import pause_on_success
 from tasks.power.power import Power
 from module.game import cloud_game, playcover_game, get_game_controller
 from module.game.cg_client import CGHelperError
-from module.game.cloud import CloudGameLoginTimeoutError
+from module.game.cloud import (
+    CloudGameDisconnectedError,
+    CloudGameLoginTimeoutError,
+    CloudGamePageNotReadyError,
+    CloudGameProbeUnready,
+    CloudGameQueueTimeoutError,
+    CloudGameZeroDurationError,
+)
 from module.logger import log
 from module.screen import screen
 from module.automation import auto
+from module.automation.automation import screenshot_retry_timeout
+from module.automation.background_input import GameWindowLost, InputInterrupted
 from module.config import cfg
 from module.config.platform import ProfileAssetNotFoundError, TouchProfileInputError, get_control_backend
 from module.notification import notif
 from module.notification.notification import NotificationLevel
 from tasks.base.base import Base
-from module.automation.background_input import InputInterrupted
+from tasks.base.task_steps import GameRecoveryError
 from module.ocr import ocr
 from module.localization import tr
 from utils.console import is_gui_started
-from utils.pause import pause_ctl
+from utils.pause import RunStopRequested, pause_ctl
+from utils.runs import describe_run, idle_without_run_lock
 from utils.wait import wait_until
 from utils.windows_power import task_power_request
 
@@ -35,7 +46,7 @@ class GameClientOutdatedError(RuntimeError):
     """游戏客户端版本过低（供 except 类型判断，勿用文本匹配异常消息）。"""
 
 
-class GameStartupUnavailable(InputInterrupted):
+class GameStartupUnavailable(InputInterrupted, GameRecoveryError):
     """启动或接管时无法确认游戏可用，保留当前游戏现场。"""
 
     reason = "game_startup_unavailable"
@@ -74,10 +85,11 @@ def prepare_currency_wars_takeover():
     pause_ctl.checkpoint()
 
 
-def start(headless=None, *, optimize_graphics=True, screen_ready=None):
+def start(headless=None, *, optimize_graphics=True, screen_ready=None, preserve_cloud_session=False):
     task_power_request.acquire(log)
     log.hr("开始运行", 0)
-    start_game(headless=headless, optimize_graphics=optimize_graphics, screen_ready=screen_ready)
+    start_game(headless=headless, optimize_graphics=optimize_graphics, screen_ready=screen_ready,
+               preserve_cloud_session=preserve_cloud_session)
     log.hr("完成", 2)
 
 
@@ -108,8 +120,11 @@ def ensure_game_ready():
     return True
 
 
-def start_game(headless=None, *, optimize_graphics=True, screen_ready=None):
+def start_game(headless=None, *, optimize_graphics=True, screen_ready=None, preserve_cloud_session=False):
     MAX_RETRY = 3
+    backend = get_control_backend(cfg)
+    timeout = getattr(cfg, "start_game_timeout", 10) * 60
+    cloud_disconnected = False
 
     def check_and_click_enter():
         # 点击进入
@@ -242,14 +257,60 @@ def start_game(headless=None, *, optimize_graphics=True, screen_ready=None):
                     log.info(f"游戏路径更新成功：{program_path}")
             time.sleep(1)
 
+    def cloud_startup_entry():
+        nonlocal cloud_disconnected
+        last_error = None
+        for attempt in range(MAX_RETRY):
+            pause_ctl.checkpoint()
+            try:
+                in_game = cloud_game.is_in_game()
+                pause_ctl.checkpoint()
+                if in_game:
+                    return "running"
+                if preserve_cloud_session:
+                    entry = cloud_game.startup_entry(disconnected=cloud_disconnected)
+                    if entry is not None:
+                        pause_ctl.checkpoint()
+                        return entry
+                    if cloud_disconnected:
+                        raise CloudGameProbeUnready("云游戏断开后暂未确认播放器或原排队状态，或可重新进入的大厅")
+                    raise CloudGameProbeUnready("暂未确认云游戏播放器、大厅或排队状态")
+                if last_error is None:
+                    return "enter"
+            except (CloudGameDisconnectedError, CloudGameProbeUnready, TimeoutError) as error:
+                cloud_disconnected |= isinstance(error, CloudGameDisconnectedError)
+                last_error = error
+            pause_ctl.checkpoint()
+            if attempt + 1 < MAX_RETRY:
+                log.warning(f"暂未确认云游戏会话，等待复核：{last_error}")
+                time.sleep(1)
+        raise GameStartupUnavailable(f"云游戏连接持续不可用，已保留游戏现场：{last_error}") from last_error
+
     def start_cloud_game():
-        if not cloud_game.start_game_process():
+        if preserve_cloud_session:
+            started = cloud_game.start_game_process(headless=headless, preserve_existing=True)
+        else:
+            started = cloud_game.start_game_process(headless=headless)
+        pause_ctl.checkpoint()
+        if not started:
             raise ConnectionError("启动或连接浏览器失败")
-        if not cloud_game.is_in_game():
-            if not cloud_game.enter_cloud_game():
+        entry = cloud_startup_entry()
+        if entry != "running":
+            if entry == "resume_queue":
+                entered = cloud_game.enter_cloud_game(resume_queue=True)
+            elif entry == "signed_in_lobby":
+                entered = cloud_game.enter_cloud_game(signed_in_lobby_only=True)
+            else:
+                entered = cloud_game.enter_cloud_game()
+            pause_ctl.checkpoint()
+            if entered == "game_running":
+                if not cloud_game.is_in_game():
+                    raise CloudGameProbeUnready("暂未确认恢复的云游戏播放器")
+                return
+            if not entered:
                 raise ConnectionError("进入云游戏失败")
             time.sleep(10)
-            if not wait_until(lambda: cloud_game_check_and_enter(), cfg.start_game_timeout * 60):
+            if not wait_until(cloud_game_check_and_enter, timeout):
                 raise TimeoutError("查找并点击进入按钮超时")
             time.sleep(10)
 
@@ -265,7 +326,7 @@ def start_game(headless=None, *, optimize_graphics=True, screen_ready=None):
         # 货币战争等独立状态机任务传入 screen_ready 时，不要按 Esc 破坏当前局面
         if screen.get_current_screen(autotry=(already_running and screen_ready is None), max_retries=5 if already_running else 1) and screen.current_screen not in ("click_enter", "start_game"):
             return
-        if not wait_until(lambda: check_and_click_enter(), cfg.start_game_timeout * 60):
+        if not wait_until(lambda: check_and_click_enter(), timeout):
             raise TimeoutError("查找并点击进入按钮超时")
         time.sleep(10)
 
@@ -276,11 +337,15 @@ def start_game(headless=None, *, optimize_graphics=True, screen_ready=None):
             log.debug(f"任务起始画面暂不可用：{error}")
             return False
 
+    if backend == "cloud":
+        cloud_game.reset_queue_wait()
     for retry in range(MAX_RETRY):
+        starrail = None
         try:
-            if cfg.cloud_game_enable:
+            pause_ctl.checkpoint()
+            if backend == "cloud":
                 start_cloud_game()
-            elif cfg.playcover_enable:
+            elif backend == "playcover":
                 start_playcover_game()
             else:
                 starrail = StarRailController(cfg=cfg, logger=log)
@@ -288,22 +353,61 @@ def start_game(headless=None, *, optimize_graphics=True, screen_ready=None):
             if screen_ready is not None:
                 if not wait_until(task_screen_ready, 6 * 60):
                     log.error("获取当前界面超时")
-                    get_game_controller().stop_game()
+                    if backend == "cloud":
+                        cloud_game.stop_game()
+                    elif backend == "playcover":
+                        playcover_game.stop_game()
+                    else:
+                        starrail.stop_game()
                     continue
             elif not wait_until(lambda: screen.get_current_screen(), 6 * 60):
                 log.error("获取当前界面超时")
                 # 确保在重试前停止游戏
-                get_game_controller().stop_game()
+                if backend == "cloud":
+                    cloud_game.stop_game()
+                elif backend == "playcover":
+                    playcover_game.stop_game()
+                else:
+                    starrail.stop_game()
                 continue
             break
+        except CloudGamePageNotReadyError as error:
+            cloud_game.preserve_running_browser()
+            raise GameStartupUnavailable(f"{error}，已保留当前浏览器") from error
+        except CloudGameZeroDurationError:
+            # 重入时长为 0 时保留附着的浏览器，播放器可能在读取余额后恢复。
+            if preserve_cloud_session and cloud_disconnected:
+                cloud_game.preserve_running_browser()
+            else:
+                cloud_game.stop_game()
+            raise
         except (CloudGameLoginTimeoutError, TouchProfileInputError, ProfileAssetNotFoundError, CGHelperError):
             raise
+        except (InputInterrupted, RunStopRequested):
+            if backend == "cloud":
+                cloud_game.preserve_running_browser()
+            raise
         except Exception as e:
+            if isinstance(e, GameRecoveryError) and (backend == "cloud" or starrail is None):
+                if backend == "cloud":
+                    cloud_game.preserve_running_browser()
+                raise
+            pause_ctl.check_stop()
             log.error(f"尝试启动游戏时发生错误：{e}")
+            if backend == "cloud" and preserve_cloud_session:
+                cloud_game.preserve_running_browser()
+                if isinstance(e, CloudGameQueueTimeoutError):
+                    raise GameStartupUnavailable(f"{e}，已保留云游戏队列") from e
+                if retry == MAX_RETRY - 1:
+                    raise GameStartupUnavailable(f"云游戏启动持续不可用，已保留游戏现场：{e}") from e
+                time.sleep(1)
+                continue
             # 确保在重试前停止游戏
-            if cfg.cloud_game_enable or cfg.playcover_enable:
-                get_game_controller().stop_game()
-            else:
+            if backend == "cloud":
+                cloud_game.stop_game()
+            elif backend == "playcover":
+                playcover_game.stop_game()
+            elif starrail is not None:
                 starrail.stop_game()
                 # 非云游戏模式下，若检测到是版本过低则尝试通过启动器更新
                 if isinstance(e, GameClientOutdatedError) and cfg.update_via_launcher:
@@ -346,33 +450,10 @@ def stop(detect_loop=False, *, success=True):
 
 
 def after_finish_is_loop():
-
-    def get_wait_time(current_power):
-        # 距离体力到达配置文件指定的上限剩余秒数
-        wait_time_power_limit = (cfg.power_limit - current_power) * 6 * 60
-        # 距离第二天凌晨4点剩余秒数，+30避免显示3点59分不美观，#7
-        wait_time_next_day = Date.get_time_next_x_am(cfg.refresh_hour) + 30
-        # 取最小值
-        wait_time = min(wait_time_power_limit, wait_time_next_day)
-        return wait_time
-
-    if cfg.loop_mode == "power":
-        current_power = Power.get(use_supplement=False)
-        if current_power >= cfg.power_limit:
-            log.info(f"开拓力 >= {cfg.power_limit}")
-            log.info("即将再次运行")
-            log.hr("完成", 2)
-            notif.flush_batch()
-            return
-        else:
-            get_game_controller().stop_game()
-            wait_time = get_wait_time(current_power)
-            future_time = Date.calculate_future_time(wait_time)
-    else:
-        get_game_controller().stop_game()
-        scheduled_time = cfg.scheduled_time
-        wait_time = Date.time_to_seconds(scheduled_time)
-        future_time = Date.calculate_future_time(scheduled_time)
+    get_game_controller().stop_game()
+    scheduled_time = cfg.scheduled_time
+    wait_time = Date.time_to_seconds(scheduled_time)
+    future_time = Date.calculate_future_time(scheduled_time)
 
     # 图形界面不支持循环模式，提前检查并退出
     if is_gui_started():
@@ -388,16 +469,35 @@ def after_finish_is_loop():
     log.hr("完成", 2)
     # 等待状态退出OCR避免内存占用
     ocr.exit_ocr()
-    # 使用wall clock轮询等待，避免系统休眠后time.sleep剩余时间不准确的问题
-    target_time = time.time() + wait_time
-    while True:
-        remaining = target_time - time.time()
-        if remaining <= 0:
-            break
-        time.sleep(min(60, remaining))
+    # 等待期间不操控游戏，让出运行锁，图形界面或其他命令行可以照常运行任务；
+    # 到点后若其他任务仍在运行，等它结束再开始下一轮
+    with idle_without_run_lock(
+            on_wait=lambda holder: log.info(f"等待正在运行的{describe_run(holder)}结束后再开始下一轮"),
+            on_unavailable=lambda error: log.warning(f"运行锁不可用（{error}），无法确认是否已有其他任务在运行，照常开始下一轮")):
+        # 使用wall clock轮询等待，避免系统休眠后time.sleep剩余时间不准确的问题
+        target_time = time.time() + wait_time
+        poll_interval = 1 if pause_ctl.enabled else 60
+        while True:
+            pause_ctl.check_stop()
+            remaining = target_time - time.time()
+            if remaining <= 0:
+                break
+            time.sleep(min(poll_interval, remaining))
 
     # 启动前重新加载配置 #262
     cfg._load_config()
+
+
+def wait_after_cloud_zero_duration(error):
+    """云游戏时长为 0 时，循环模式下发送通知并等待到下次定时运行，返回 True；
+    非循环模式返回 False，由调用方按错误退出。"""
+    if cfg.after_finish != "Loop":
+        return False
+    msg = cfg.notify_template['ErrorOccurred'].format(error=error)
+    log.error(msg)
+    notif.flush_batch(extra_content=msg, level=NotificationLevel.ERROR)
+    after_finish_is_loop()
+    return True
 
 
 def _start_launcher_and_get_automation(game):
@@ -541,10 +641,15 @@ def notify_after_finish_not_loop():
 
     def get_wait_time(current_power):
         # 距离体力到达300上限剩余秒数
-        wait_time_power_full = (300 - current_power) * 6 * 60
+        wait_time_power_full = max(0, 300 - current_power) * 6 * 60
         return wait_time_power_full
 
-    current_power = Power.get(use_supplement=False)
+    try:
+        current_power = Power.get(use_supplement=False)
+    except Exception as error:
+        log.warning(f"未能确认开拓力恢复时间：{error}")
+        notif.flush_batch()
+        return
 
     wait_time = get_wait_time(current_power)
     future_time = Date.calculate_future_time(wait_time)
@@ -603,7 +708,3 @@ def auto_login_os():
                 if auto.find_element("./assets/images/screen/welcome.png", "image", 0.9, max_retries=10):
                     return
     raise PermissionError("尝试自动登录失败")
-
-
-def wait_after_cloud_zero_duration(_error=None):
-    return False

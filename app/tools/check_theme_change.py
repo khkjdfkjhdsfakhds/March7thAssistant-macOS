@@ -1,22 +1,38 @@
 # check_theme_change.py
 from qfluentwidgets import setTheme, Theme, qconfig
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication
 import os
 import subprocess
 import sys
 import darkdetect
 from module.config import cfg
 
+# 自动模式交还给系统（Unknown），其余偏好固定 Qt 配色。
+_QT_COLOR_SCHEMES = {'light': Qt.ColorScheme.Light, 'dark': Qt.ColorScheme.Dark,
+                     'evernight': Qt.ColorScheme.Dark}
+
+
+def current_theme_preference(window):
+    if window is not None and window._evernight.selected:
+        return 'evernight'
+    preference = cfg.get_value('ui_theme', 'auto')
+    return 'auto' if preference == 'evernight' else preference
+
 
 def applyTheme(window, theme=None):
-    """Apply the session theme or the saved preference; auto follows the system."""
-    evernight_selected = window is not None and window._evernight.selected
-    preference = 'evernight' if evernight_selected else cfg.get_value('ui_theme', 'auto')
+    """Apply the current theme preference, following the system in auto mode."""
+    preference = current_theme_preference(window)
     if theme is not None:
         if preference != 'auto':
             return
     else:
+        # 系统切换深浅色时，Qt 会把所有窗口的 Mica 深色标记和调色板改成系统配色，
+        # 而 qfluentwidgets 主题没变就不会重设 Mica。固定主题时要让 Qt 不再跟随系统。
+        app = QApplication.instance()
+        if app is not None:
+            app.styleHints().setColorScheme(_QT_COLOR_SCHEMES.get(preference, Qt.ColorScheme.Unknown))
         theme = {'light': Theme.LIGHT, 'dark': Theme.DARK, 'evernight': Theme.DARK}.get(preference)
         if theme is None:
             theme = Theme.DARK if darkdetect.isDark() else Theme.LIGHT

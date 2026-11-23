@@ -282,6 +282,12 @@ class SettingInterface(ScrollArea):
             tr("单次上限5个，全部使用需要将“任务完成后”选项修改为“循环”，然后点击“完整运行”"),
             "use_fuel"
         )
+        self.preferFuelTicketsCard = SwitchSettingCard1(
+            UiIcon.DROP,
+            tr("优先使用助燃券（实验）"),
+            tr("PC 花萼、凝滞虚影优先快速刷取，保留支援实训，券不足时普通挑战"),
+            "prefer_fuel_tickets"
+        )
         self.weeklyRelicCleanupEnableCard = ExpandableWeeklyRelicSettingCard(
             "break_down_level_four_relicset",
             "weekly_relic_cleanup_day_of_week",
@@ -2697,6 +2703,7 @@ class SettingInterface(ScrollArea):
             self.tpBeforeInstanceEnableCard,
             self.useReservedTrailblazePowerEnableCard,
             self.useFuelEnableCard,
+            self.preferFuelTicketsCard,
             self.weeklyRelicCleanupEnableCard,
             self.mergeImmersifierEnableCard,
             self.instanceNameChallengeCountCard

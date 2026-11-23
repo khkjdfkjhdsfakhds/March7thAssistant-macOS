@@ -22,6 +22,11 @@ from module import mobile
 
 
 _screenshot_retry_timeout = ContextVar("screenshot_retry_timeout", default=60.0)
+_INPUT_METHODS = (
+    "mouse_click", "mouse_down", "mouse_up", "mouse_move", "mouse_park", "mouse_drag",
+    "mouse_scroll", "press_key", "press_key_down", "press_key_up",
+    "secretly_press_key", "press_mouse", "secretly_write",
+)
 
 
 @contextmanager
@@ -62,18 +67,11 @@ class Automation(metaclass=SingletonMeta):
         if previous is not None and callable(getattr(previous, 'close', None)):
             previous.close()
         self.input_handler = get_game_controller().get_input_handler()
-        self.mouse_click = pause_guard(self.input_handler.mouse_click)
-        self.mouse_down = pause_guard(self.input_handler.mouse_down)
-        self.mouse_up = pause_guard(self.input_handler.mouse_up)
-        self.mouse_move = pause_guard(self.input_handler.mouse_move)
-        self.mouse_drag = pause_guard(self.input_handler.mouse_drag)
-        self.mouse_scroll = pause_guard(self.input_handler.mouse_scroll)
-        self.press_key = pause_guard(self.input_handler.press_key)
-        self.press_key_down = pause_guard(self.input_handler.press_key_down)
-        self.press_key_up = pause_guard(self.input_handler.press_key_up)
-        self.secretly_press_key = pause_guard(self.input_handler.secretly_press_key)
-        self.press_mouse = pause_guard(self.input_handler.press_mouse)
-        self.secretly_write = pause_guard(self.input_handler.secretly_write)
+        for name in _INPUT_METHODS:
+            method = getattr(self.input_handler, name, None)
+            if method is None and name == "mouse_park":
+                method = self.input_handler.mouse_move
+            setattr(self, name, pause_guard(method))
 
     def close_input(self):
         if self.input_handler is not None:
@@ -214,7 +212,10 @@ class Automation(metaclass=SingletonMeta):
                             self._debug_draw_crop_region(crop)
                     return result
                 elif timeout > 0:
-                    self.logger.error("截图失败：没有找到游戏窗口")
+                    if cfg.playcover_enable and not cfg.cloud_game_enable:
+                        self.logger.error("截图失败：未能获取到 PlayCover 游戏画面（连接超时或窗口未就绪）")
+                    else:
+                        self.logger.error("截图失败：没有找到游戏窗口")
             except (GameWindowLost, InputInterrupted):
                 raise
             except Exception as e:
@@ -1020,6 +1021,14 @@ class Automation(metaclass=SingletonMeta):
             pause_ctl.checkpoint()
         (x, y), = self._window_points(point)
         return self.mouse_move(x, y) is not False
+
+    def park_mouse(self, point):
+        """把指针停到归一化坐标处并留在那里，避免指针悬停改变画面。后台模式只在用户光标原本落在游戏画面范围内时不归还光标。"""
+        if any(not 0 <= value <= 1 for value in point):
+            raise ValueError("坐标必须在 0 到 1 之间")
+        pause_ctl.checkpoint()
+        (x, y), = self._window_points(point)
+        return self.mouse_park(x, y) is not False
 
     def _window_points(self, *points):
         """把归一化坐标换算成游戏窗口内的屏幕坐标。截图可能被缩放，按窗口实际宽高换算，端点保持在窗口内。"""

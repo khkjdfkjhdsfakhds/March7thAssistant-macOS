@@ -1,10 +1,46 @@
 import os
 import copy
+import sys
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
 import pytest
 
 from module.config.config import _get_env_override, _ENV_OVERRIDE_MAP, _CONFIG_KEY_TO_ENV
+
+
+@pytest.mark.parametrize(("system", "settings", "detected", "expected", "reads_registry"), [
+    ("win32", {}, {"hotkey_map": "space"}, "space", True),
+    ("win32", {}, {}, "n", True),
+    ("win32", {"auto_detect_game_hotkeys_enable": False}, {"hotkey_map": "space"}, "n", False),
+    ("win32", {"control_backend": "cloud"}, {"hotkey_map": "space"}, "n", False),
+    ("win32", {"cloud_game_enable": True}, {"hotkey_map": "space"}, "n", False),
+    ("win32", {"playcover_enable": True}, {"hotkey_map": "space"}, "n", False),
+    ("win32", {"control_backend": "adb"}, {"hotkey_map": "space"}, "n", False),
+    ("win32", {"ui_profile": "touch_720"}, {"hotkey_map": "space"}, "n", False),
+    ("darwin", {}, {"hotkey_map": "space"}, "n", False),
+    ("linux", {}, {"hotkey_map": "space"}, "n", False),
+])
+def test_effective_game_hotkey_keeps_manual_config(
+    monkeypatch, system, settings, detected, expected, reads_registry,
+):
+    from module.config import game_hotkeys
+    from module.config.config import Config
+
+    config = Config.__new__(Config)
+    config.config = {"game_path": "StarRail.exe", "hotkey_map": "n", **settings}
+    monkeypatch.delenv("MARCH7TH_CLOUD_GAME_ENABLE", raising=False)
+    monkeypatch.delenv("MARCH7TH_PLAYCOVER_ENABLE", raising=False)
+    monkeypatch.setattr(game_hotkeys, "sys", SimpleNamespace(platform=system))
+    reader = MagicMock(return_value=detected)
+    monkeypatch.setitem(sys.modules, "utils.registry.star_rail_setting", SimpleNamespace(read_game_hotkeys=reader))
+
+    assert config.get_game_hotkey("hotkey_map", "m") == expected
+    assert config.get_value("hotkey_map") == "n"
+    if reads_registry:
+        reader.assert_called_once_with("StarRail.exe", ("hotkey_map",))
+    else:
+        reader.assert_not_called()
 
 
 class TestGetEnvOverride:
@@ -599,3 +635,33 @@ class TestCurrencyWarsAndThemeConfigCompatibility:
             config = Config.__new__(Config)
             Config.__init__(config, "assets/config/version.txt", "assets/config/config.example.yaml", str(path))
             assert config.get_value("currencywars_strategy") == value
+
+
+class TestMessageHotkeyConfig:
+    @pytest.mark.parametrize("saved_key, expected", [(None, "p"), ("k", "k"), ("f6", "f6")])
+    def test_load_preserves_custom_key_and_fills_old_config(
+        self, tmp_path, monkeypatch, saved_key, expected
+    ):
+        from pathlib import Path
+        from module.config.config import Config
+
+        root = Path(__file__).resolve().parents[2]
+        path = tmp_path / "config.yaml"
+        text = "hotkey_map: n\nreward_message_enable: true\n"
+        if saved_key is not None:
+            text += f"hotkey_message: {saved_key}\n"
+        path.write_text(text, encoding="utf-8")
+        monkeypatch.delenv("MARCH7TH_CONFIG_READONLY", raising=False)
+        monkeypatch.setattr(Config, "_readonly", False)
+        config = Config.__new__(Config)
+        config.__init__(str(root / "assets/config/version.txt"),
+                        str(root / "assets/config/config.example.yaml"), str(path))
+
+        assert config.get_value("hotkey_message") == expected
+        assert config.get_value("hotkey_map") == "n"
+        assert config.get_value("auto_detect_game_hotkeys_enable") is True
+        assert config.get_value("reward_message_enable") is True
+        saved = config.yaml.load(path.read_text(encoding="utf-8"))
+        assert saved["hotkey_message"] == expected
+        config._load_config()
+        assert config.get_value("hotkey_message") == expected

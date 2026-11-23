@@ -1,7 +1,13 @@
+from functools import lru_cache
+from pathlib import Path
 from typing import Tuple, Optional
-import winreg
+try:
+    import winreg
+except ImportError:
+    winreg = None
 import json
 import os
+from utils.game_key_templates import PROMPT_KEY_DEFAULTS, key_prompt_path
 
 # Registry key paths for different server regions
 registry_key_path_cn = r"SOFTWARE\miHoYo\崩坏：星穹铁道"
@@ -12,9 +18,110 @@ registry_key_path_oversea = r"SOFTWARE\Cognosphere\Star Rail"
 resolution_value_name = "GraphicsSettings_PCResolution_h431323223"
 graphics_value_name = "GraphicsSettings_Model_h2986158309"
 
+_HOTKEY_VALUE_NAMES = {
+    "hotkey_interact": "HotkeysSettings_Menu_MazeInteract_Keyboard_h2537131863",
+    "hotkey_character_details": "HotkeysSettings_Menu_BattleAvatarDetail_Keyboard_h1744695036",
+    "hotkey_technique": "HotkeysSettings_Menu_MazeSkill_Keyboard_h1042695892",
+    "hotkey_map": "HotkeysSettings_Maze_Map_Keyboard_h1833719210",
+    "hotkey_warp": "HotkeysSettings_Maze_Gacha_Keyboard_h3861591226",
+    "hotkey_message": "HotkeysSettings_Menu_PhoneMessage_Keyboard_h3569468801",
+    "hotkey_auto_battle": "HotkeysSettings_Menu_BattleAuto_Keyboard_h3719200595",
+}
+
+# 游戏在按键说明里改绑后写入的编码。
+_KEY_NAMES_BY_CODE = {
+    5: "shiftleft",
+    8: "ctrlleft",
+    9: "shiftright",
+    10: "altright",
+    12: "ctrlright",
+    **{13 + n: f"f{n}" for n in range(1, 13)},
+    **{26 + n: str(n) for n in range(10)},
+    **{36 + n: letter for n, letter in enumerate("abcdefghijklmnopqrstuvwxyz")},
+    62: "`",
+    63: "-",
+    64: "=",
+    65: "backspace",
+    67: "[",
+    68: "]",
+    69: "\\",
+    70: ";",
+    71: "'",
+    72: "enter",
+    73: ",",
+    74: ".",
+    75: "/",
+    76: "space",
+    83: "left",
+    84: "right",
+    85: "up",
+    86: "down",
+    **{87 + n: f"num{n}" for n in range(10)},
+    98: "divide",
+    99: "multiply",
+    100: "subtract",
+    101: "add",
+    103: "decimal",
+    110: "capslock",
+}
+
 
 class MissingFPSSettingError(ValueError):
     """游戏未使用自定义图像质量，没有可修改的帧率配置。"""
+
+
+def registry_path_for_game(game_path: str) -> Optional[str]:
+    """仅根据当前所选游戏的 Unity 元数据识别渠道，不猜测。"""
+    if not game_path or Path(game_path).name.lower() != "starrail.exe":
+        return None
+    try:
+        info = Path(game_path).parent / "StarRail_Data" / "app.info"
+        names = tuple(line.strip() for line in info.read_text(encoding="utf-8-sig").strip().splitlines())
+    except (OSError, UnicodeError):
+        return None
+    return {
+        ("miHoYo", "崩坏：星穹铁道"): registry_key_path_cn,
+        ("Cognosphere", "Star Rail"): registry_key_path_oversea,
+    }.get(names)
+
+
+def read_game_hotkeys(game_path: str, names: tuple[str, ...] | None = None) -> dict[str, str]:
+    """只读所选客户端的键鼠改绑。缺失或无法解码的项目交给调用方回退。"""
+    if winreg is None:
+        return {}
+    detected = {}
+    try:
+        path = registry_path_for_game(game_path)
+        if path is None:
+            return {}
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path) as registry:
+            for name in _HOTKEY_VALUE_NAMES if names is None else names:
+                value_name = _HOTKEY_VALUE_NAMES.get(name)
+                if value_name is None:
+                    continue
+                try:
+                    code, value_type = winreg.QueryValueEx(registry, value_name)
+                except OSError:
+                    continue
+                if value_type != winreg.REG_DWORD:
+                    continue
+                key = _KEY_NAMES_BY_CODE.get(code)
+                if name in PROMPT_KEY_DEFAULTS and key_prompt_path(key) is None:
+                    _warn_missing_key_prompt(name, code, key)
+                elif key is not None:
+                    detected[name] = key
+    except (OSError, ValueError):
+        return {}
+    return detected
+
+
+@lru_cache(maxsize=64)
+def _warn_missing_key_prompt(name: str, code: int, key: str | None):
+    from module.logger import log
+
+    label = "交互" if name == "hotkey_interact" else "角色详情"
+    key_text = f"{key.upper()}（键码 {code}）" if key else f"键码 {code}"
+    log.warning(f"游戏内{label}键 {key_text} 缺少识别模板，使用小助手设置。")
 
 
 def get_server_by_registry() -> Optional[str]:
@@ -24,6 +131,8 @@ def get_server_by_registry() -> Optional[str]:
     Returns:
         "cn" for CN server, "oversea" for international server, or None if neither exists.
     """
+    if winreg is None:
+        return None
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, registry_key_path_cn):
             return "cn"
@@ -42,6 +151,8 @@ def get_registry_key_path() -> Optional[str]:
     Returns:
         The registry path for CN server if found, otherwise oversea server path, or None if neither exists.
     """
+    if winreg is None:
+        return None
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, registry_key_path_cn):
             return registry_key_path_cn

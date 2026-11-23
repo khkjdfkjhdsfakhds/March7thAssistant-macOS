@@ -7,6 +7,7 @@ from module.notification.notification import NotificationLevel
 from tasks.base.base import Base
 from tasks.base.pythonchecker import PythonChecker
 from utils.command import subprocess_with_timeout
+from utils.game_key_templates import find_interact_prompt
 import subprocess
 import time
 import sys
@@ -195,8 +196,9 @@ class Universe:
         :param save: 是否保存时间戳
         :return: 如果模拟宇宙成功，返回 True；否则返回 False
         """
-        if auto.find_element("./assets/images/share/base/F.png", "image", 0.9, crop=(998.0 / 1920, 473.0 / 1080, 392.0 / 1920, 296.0 / 1080)):
-            auto.press_key("f")
+        interact_key = cfg.get_game_hotkey("hotkey_interact", "f")
+        if find_interact_prompt(auto, interact_key):
+            auto.press_key(interact_key)
             if category == "divergent":
                 screen.wait_for_screen_change('divergent_main')
             else:
@@ -259,8 +261,9 @@ class Universe:
         claimed = False
         with optional_reward("模拟宇宙周期奖励"):
             lobby = "divergent_main" if category == "divergent" else "universe_main"
-            if auto.find_element("./assets/images/share/base/F.png", "image", 0.9, crop=(998.0 / 1920, 473.0 / 1080, 392.0 / 1920, 296.0 / 1080)):
-                auto.press_key("f")
+            interact_key = cfg.get_game_hotkey("hotkey_interact", "f")
+            if find_interact_prompt(auto, interact_key):
+                auto.press_key(interact_key)
                 screen.wait_for_screen_change(lobby)
             else:
                 screen.change_to(lobby)
@@ -286,35 +289,7 @@ class Universe:
 
     @staticmethod
     def process_ornament():
-        screen.change_to("guide3")
-
-        immersifier_crop = (1623.0 / 1920, 40.0 / 1080, 162.0 / 1920, 52.0 / 1080)
-        text = auto.get_single_line_text(crop=immersifier_crop, blacklist=['+', '米'], max_retries=3)
-        if "/12" not in text:
-            log.error("沉浸器数量识别失败")
-            return
-
-        immersifier_count = int(text.split("/")[0])
-        log.info(f"沉浸器: {immersifier_count}/12")
-        if immersifier_count > 0:
-            instance_name = cfg.instance_names["饰品提取"]
-
-            # 使用培养目标的副本配置（如果启用）
-            try:
-                if cfg.build_target_enable:
-                    from tasks.daily.buildtarget import BuildTarget
-                    target_instances = BuildTarget.get_target_instances()
-
-                    for target_type, target_name in target_instances:
-                        # 精确匹配副本类型
-                        if target_type == "饰品提取":
-                            log.info(f"使用培养目标副本: {target_name}")
-                            instance_name = target_name
-                            break
-            except Exception as e:
-                log.error(f"获取培养目标副本失败: {e}")
-
-            Power.process("饰品提取", instance_name, immersifier_only = True)
+        Power.process_immersifier_only()
 
     @staticmethod
     def gui():

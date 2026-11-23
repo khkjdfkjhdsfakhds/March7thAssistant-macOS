@@ -108,6 +108,76 @@ def test_interrupted_edge_search_does_not_continue():
     assert auto.drags == 1
 
 
+def test_memory_first_level_is_checked_after_the_last_allowed_group(monkeypatch):
+    from tasks.challenge import memoryone
+
+    calls = []
+    auto = SimpleNamespace(find_element=lambda *args, **kwargs: len(calls) == 4,
+                           drag_mouse=lambda *args, **kwargs: calls.append(kwargs) or True)
+    monkeypatch.setattr(memoryone, "auto", auto)
+    assert memoryone.MemoryOne.scroll_to_first_level()
+    assert len(calls) == 4 and all(call["repeats"] == 3 for call in calls)
+
+
+def test_memory_checks_once_after_each_drag_group(monkeypatch):
+    from tasks.challenge import memoryone
+
+    events = []
+
+    def find(*args, **kwargs):
+        assert kwargs.get("take_screenshot", True) and kwargs.get("need_ocr", True)
+        events.append("check")
+        return "drag" in events
+
+    def drag(*args, **kwargs):
+        assert kwargs["repeats"] == 3
+        events.extend(["drag"] * 3)
+        return True
+
+    monkeypatch.setattr(memoryone, "auto", SimpleNamespace(find_element=find, drag_mouse=drag))
+    assert memoryone.MemoryOne.scroll_to_first_level()
+    assert events == ["check", "drag", "drag", "drag", "check"]
+
+
+def test_memory_missing_first_level_has_a_group_limit(monkeypatch):
+    from tasks.challenge import memoryone
+
+    auto = Mock()
+    auto.find_element.return_value = False
+    auto.drag_mouse.return_value = True
+    monkeypatch.setattr(memoryone, "auto", auto)
+    assert memoryone.MemoryOne.scroll_to_first_level() is False
+    assert auto.drag_mouse.call_count == 4
+    assert auto.find_element.call_count == 5
+
+
+def test_memory_already_at_first_level_does_not_drag(monkeypatch):
+    from tasks.challenge import memoryone
+
+    auto = Mock()
+    auto.find_element.return_value = True
+    monkeypatch.setattr(memoryone, "auto", auto)
+    assert memoryone.MemoryOne.scroll_to_first_level()
+    auto.drag_mouse.assert_not_called()
+    auto.find_element.assert_called_once()
+
+
+def test_memory_first_level_interruption_does_not_open_a_stage(monkeypatch):
+    from tasks.challenge import memoryone
+
+    auto = Mock()
+    auto.find_element.return_value = False
+    monkeypatch.setattr(memoryone, "auto", auto)
+    auto.drag_mouse.return_value = False
+    obj = memoryone.MemoryOne([])
+    obj.start_challenge = Mock()
+    assert obj.start_challenges() is False
+    assert obj.success is False
+    obj.start_challenge.assert_not_called()
+    auto.drag_mouse.assert_called_once()
+    auto.take_screenshot.assert_called_once()
+
+
 @pytest.mark.parametrize("target_on_last_page", [True, False])
 def test_quick_ornament_checks_page_after_final_drag(monkeypatch, target_on_last_page):
     from tasks.weekly import currency_wars
@@ -170,3 +240,21 @@ def test_quick_ornament_releases_a_held_button_on_stop(monkeypatch):
     auto.mouse_move.assert_not_called()
     auto.press_key.assert_not_called()
     assert auto.click_element.call_count == 3
+
+
+def test_message_checks_page_after_final_drag(monkeypatch):
+    from tasks.reward import message
+
+    drag = Mock(return_value=True)
+    auto = Mock()
+    pos = ((0, 0), (1, 1))
+    auto.find_element.side_effect = lambda *args, **kwargs: pos if drag.call_count == 4 else None
+    auto.click_element_with_pos.return_value = False
+    monkeypatch.setattr(message, "auto", auto)
+    monkeypatch.setattr(message, "drag_list", drag)
+
+    with pytest.raises(message.RewardError, match="未读会话无法打开"):
+        message.Message("短信", True, "incoming_message").run()
+
+    assert drag.call_count == 4
+    auto.click_element_with_pos.assert_called_once_with(pos)

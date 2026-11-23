@@ -4,13 +4,19 @@ import time
 import json
 import threading
 from collections import deque
+
+import numpy as np
+
 from utils.color import green
 from utils.singleton import SingletonMeta
 from utils.logger.logger import Logger
 from typing import Optional
 from module.automation import auto
+from module.automation.background_input import GameWindowLost, InputInterrupted
 from module.config import cfg
 from module.config.platform import ProfileAssetNotFoundError, TouchProfileInputError, get_control_backend, get_ui_profile
+from module.ocr import ocr
+from utils.pause import pause_ctl
 
 
 class Screen(metaclass=SingletonMeta):
@@ -34,7 +40,7 @@ class Screen(metaclass=SingletonMeta):
         self.lock = threading.Lock()  # 创建一个锁，用于线程同步
         self._setup_screens_from_config(config_path)
 
-    def _add_screen(self, id, name, image_path, actions):
+    def _add_screen(self, id, name, image_path, actions, text_fallback=None):
         """
         添加一个新界面到界面管理器。
         :param id: 新界面的唯一标识。
@@ -42,7 +48,12 @@ class Screen(metaclass=SingletonMeta):
         :param image_path: 用于识别界面的图片路径，可以是字符串或字符串列表（任一匹配即可）。
         :param actions: 可切换的目标界面及操作序列。
         """
-        self.screen_map[id] = {'name': name, 'image_path': image_path, 'actions': actions}
+        self.screen_map[id] = {
+            'name': name,
+            'image_path': image_path,
+            'actions': actions,
+            'text_fallback': text_fallback,
+        }
 
     def _setup_screens_from_config(self, config_path):
         """
@@ -53,7 +64,13 @@ class Screen(metaclass=SingletonMeta):
             with open(config_path, 'r', encoding='utf-8') as file:
                 configs = json.load(file)
                 for config in configs:
-                    self._add_screen(config["id"], config["name"], config["image_path"], config["actions"])
+                    self._add_screen(
+                        config["id"],
+                        config["name"],
+                        config["image_path"],
+                        config["actions"],
+                        config.get("text_fallback"),
+                    )
         except FileNotFoundError:
             self.logger.error(f"配置文件不存在：{config_path}")
             raise
@@ -156,6 +173,7 @@ class Screen(metaclass=SingletonMeta):
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
+        screen_map = self.screen_map
         found_event = threading.Event()
 
         # 定义内部函数用于在线程中识别界面
@@ -176,12 +194,14 @@ class Screen(metaclass=SingletonMeta):
                             self.current_screen_threshold = result
                     found_event.set()
                     return screen_name
+            except ProfileAssetNotFoundError:
+                raise
             except Exception as e:
                 self.logger.debug(f"识别界面出错：{e}")
             return None
 
         if self.current_screen is not None and self._find_image(
-            self.screen_map[self.current_screen]['image_path'],
+            screen_map[self.current_screen]['image_path'],
             "image_threshold",
             self.SCREEN_MATCH_THRESHOLD,
         ):
@@ -195,23 +215,28 @@ class Screen(metaclass=SingletonMeta):
             import psutil
             mem = psutil.virtual_memory()
             if mem.available > 2 * 1024**3:
-                executor = ThreadPoolExecutor(max_workers=min(len(self.screen_map), os.cpu_count() or 4, 8))
-                futures = [executor.submit(find_screen, name, screen) for name, screen in self.screen_map.items()]
-
-                for future in as_completed(futures):
-                    if future.result() is not None:
-                        executor.shutdown(wait=False, cancel_futures=True)
-                        break
-                else:
-                    executor.shutdown(wait=False)
+                executor = ThreadPoolExecutor(max_workers=min(len(screen_map), os.cpu_count() or 4, 8))
+                try:
+                    futures = [executor.submit(find_screen, name, screen) for name, screen in screen_map.items()]
+                    for future in as_completed(futures):
+                        if future.result() is not None:
+                            break
+                finally:
+                    executor.shutdown(wait=False, cancel_futures=True)
             else:
-                for name, screen in self.screen_map.items():
+                for name, screen in screen_map.items():
                     find_screen(name, screen)
                     if self.current_screen:
                         break
 
             if self.current_screen:
                 return True
+
+            # 图像匹配可能并发执行，OCR 回退统一在当前线程读取这一帧。
+            for screen_name, definition in screen_map.items():
+                if self._matches_text_fallback(definition):
+                    self.current_screen = screen_name
+                    return True
 
             if autotry:
                 self.recover_current_screen()
@@ -303,12 +328,38 @@ class Screen(metaclass=SingletonMeta):
         :param take_screenshot: 是否重新截图。
         :return: 如果当前界面是目标界面，则返回True；否则返回False。
         """
-        if self._find_image(self.screen_map[target_screen]['image_path'], "image", self.SCREEN_MATCH_THRESHOLD,
-                            take_screenshot=take_screenshot):
-            # 如果找到了目标界面的图像，则更新当前界面状态为目标界面
+        definition = self.screen_map[target_screen]
+        if take_screenshot and definition.get("text_fallback"):
+            auto.take_screenshot()
+            take_screenshot = False
+        if (self._find_image(definition["image_path"], "image", self.SCREEN_MATCH_THRESHOLD,
+                             take_screenshot=take_screenshot)
+                or self._matches_text_fallback(definition)):
             self.current_screen = target_screen
             return True
         return False
+
+    def _matches_text_fallback(self, definition):
+        regions = definition.get("text_fallback")
+        if not regions:
+            return False
+        frame = auto.screenshot
+        if frame is None or frame.size != get_ui_profile(cfg).resolution:
+            return False
+
+        try:
+            for region in regions:
+                pixels = np.asarray(frame.crop(tuple(region["crop"])))
+                lines = ocr.recognize_multi_lines(pixels) or ()
+                pause_ctl.check_stop()
+                if not any("".join(text.split()) == region["text"] for _, (text, _) in lines):
+                    return False
+        except Exception as error:
+            self.logger.debug(f"识别{definition['name']}的界面文字失败：{error}")
+            return False
+
+        self.logger.debug(f"已通过界面文字识别：{definition['name']}")
+        return True
 
     def _find_image(self, image_path, find_type, threshold=None, **kwargs):
         """
@@ -324,6 +375,8 @@ class Screen(metaclass=SingletonMeta):
                 for p in image_path:
                     try:
                         r = auto.find_element(p, find_type, threshold, **kwargs)
+                    except (InputInterrupted, GameWindowLost, ProfileAssetNotFoundError):
+                        raise
                     except Exception as e:
                         self.logger.debug(f"查找图片 {p} 出错: {e}")
                         r = None
@@ -336,6 +389,9 @@ class Screen(metaclass=SingletonMeta):
                 return best
             else:
                 return auto.find_element(image_path, find_type, threshold, **kwargs)
+        except (InputInterrupted, GameWindowLost, ProfileAssetNotFoundError):
+            # 窗口不可用或素材缺失应向上报告，不能当作未匹配反复重试。
+            raise
         except Exception as e:
             self.logger.debug(f"_find_image 出错: {e}")
             return None
@@ -395,6 +451,9 @@ class Screen(metaclass=SingletonMeta):
                     },
                 )
                 self.logger.debug("执行了一个操作")
+            except (InputInterrupted, TouchProfileInputError, ProfileAssetNotFoundError):
+                # 用户需处理的输入中断、触屏不支持的操作和缺少素材都直接报告。
+                raise
             except Exception as e:
                 self.logger.debug(f"未知的操作: {e}")
 

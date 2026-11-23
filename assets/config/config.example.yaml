@@ -4,8 +4,9 @@ locales: zh_CN
 # UI 인터페이스 언어 설정 / UI 界面语言设置
 ui_language: auto # 可选值 / 가능한 값: auto (自动判断), zh_CN (简体中文), zh_TW (繁體中文), ja_JP (日本語), ko_KR (한국어), en_US (English)
 
-# 界面主题：auto（跟随系统）、light（浅色）、dark（深色）
+# 界面主题：auto（跟随系统）、light（浅色）、dark（深色）、evernight（长夜，解锁后可选）
 ui_theme: auto
+evernight_unlocked: false # 长夜主题解锁状态，由应用保存。
 
 # 日志设置
 log_level: INFO # 日志等级，可选值：INFO, DEBUG。INFO 仅记录重要信息，DEBUG 记录详细调试信息。
@@ -102,6 +103,7 @@ browser_mirror_urls:
 power_enable: true # 是否启用清体力总开关。false 时完整运行和“日常”中的历战余响与清体力都会跳过，但单独执行“清体力”任务不受影响。
 power_plan: []
 power_plan_keep: false # 是否在执行后保留整份体力计划。true 保留，false 按剩余次数更新并删除已完成计划。
+power_plan_continue: true # 完成整份体力计划后，使用剩余资源刷默认副本。
 instance_type: 拟造花萼（金） # 设置副本类型，可选值：拟造花萼（金）、拟造花萼（赤）、凝滞虚影、侵蚀隧洞、饰品提取。
 calyx_golden_preference: Jarilo-VI # 设置拟造花萼（金）偏好地区，可选值："雅利洛-VI"（Jarilo-VI）、仙舟「罗浮」（XianzhouLuofu）、匹诺康尼（Penacony）。
 instance_names:
@@ -128,6 +130,7 @@ build_target_use_user_instance_when_only_erosion_and_ornament: false # 当培养
 
 # 分解设置
 break_down_level_four_relicset: false # 每周所选日期清理四星及以下遗器；可在展开项启用智能弃置。默认关闭。
+relic_bag_cleanup_enable: false # 副本遇到遗器满包时，自动分解可清理的低星遗器。
 weekly_relic_smart_discard_enable: false # 每周清理时先智能弃置五星遗器，并一并分解已弃置遗器。默认关闭。
 weekly_relic_cleanup_day_of_week: 1 # 每周从周几开始清理遗器，1=周一，7=周日；在游戏刷新时间后执行。
 weekly_relic_cleanup_timestamp: 0 # 上次成功完成每周遗器清理的时间戳。
@@ -146,6 +149,8 @@ merge_immersifier_limit: "12" # 沉浸器上限。
 # 开拓力使用设置
 use_reserved_trailblaze_power: False # 是否使用后备开拓力。true 使用，false 不使用。
 use_fuel: False # 是否使用燃料。true 使用，false 不使用。
+prefer_fuel_tickets: False # PC 先使用助燃券快速刷取花萼/凝滞虚影（实验功能）。
+fuel_ticket_batch_enable: False # 实验：按剩余体力、助燃券和单批上限尽量合并刷取，默认关闭。
 
 # 历战余响设置
 echo_of_war_enable: false # 是否体力优先完成3次「历战余响」。true 开启，false 关闭。
@@ -409,9 +414,13 @@ refresh_hour: 4 # 设置游戏每日刷新的时间（24小时制）。
 script_path: C:\Path\to\your\Script.bat
 
 # 游戏内按键设置
+auto_detect_game_hotkeys_enable: true # 自动识别 Windows 本地客户端的按键，缺失时使用以下设置。
+hotkey_interact: f # 战斗外交互键。支持字母、主键盘数字、空格和 F1–F12。
+hotkey_character_details: c # 战斗内角色详情键。支持字母、主键盘数字、空格和 F1–F12。
 hotkey_technique: e # 设置游戏内使用秘技的按键。
 hotkey_map: m # 设置打开地图的按键。
 hotkey_warp: f3 # 设置打开跃迁的按键。
+hotkey_message: p # 设置打开短信的按键。
 hotkey_auto_battle: v # 设置自动战斗的按键。
 
 # 图形界面快捷键设置

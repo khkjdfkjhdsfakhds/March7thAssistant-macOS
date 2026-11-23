@@ -198,6 +198,12 @@ class PlayCoverGameController(GameControllerBase):
         transport = self.active_transport()
         if transport == "maatools":
             image = self.client.screenshot()
+            if image is None and self.transport_mode == "auto":
+                try:
+                    image = self.cg_client.capture_bgr()
+                except CGHelperError as e:
+                    self.log_error(f"CG 回退截图失败：{e}")
+                    return None
         else:
             try:
                 image = self.cg_client.capture_bgr()

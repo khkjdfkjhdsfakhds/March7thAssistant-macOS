@@ -13,7 +13,7 @@
 
 ## 1. 下载安装与首次打开
 
-1. 前往本仓库 [Releases (Pre-release)](https://github.com/khkjdfkjhdsfakhds/March7thAssistant-macOS/releases) 下载 **`March7thAssistant-macOS-v2026.11.20-macos.1-arm64.dmg`**（及 `SHA256SUMS.txt` 校验）。
+1. 前往本仓库 [Releases (Pre-release)](https://github.com/khkjdfkjhdsfakhds/March7thAssistant-macOS/releases) 下载 **`March7thAssistant-macOS-v2026.11.22-macos.1-arm64.dmg`**（及 `SHA256SUMS.txt` 校验）。
 2. 双击挂载 DMG 后，将 **`三月七小助手.app`** 拖入 **`/Applications`**（应用程序）。
 3. **本应用包完全独立（Self-Contained）**：内置精简 Apple Silicon `Python 3.12`、`PySide6`、`PyObjC`、`RapidOCR` 及所有动态库，**无需本机安装 Homebrew 或 Python**。
 4. 由于预览版暂未经过 Apple Developer 公证（仅带 Ad-hoc 签名），首次打开若出现“已损坏”或“无法验证开发者”提示，请在终端执行一次隔离属性清理后重新打开：

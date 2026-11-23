@@ -9,6 +9,7 @@ from typing import Optional
 from utils.image_utils import ImageUtils
 from utils.pause import pause_guard
 from module.game import get_game_controller
+from module.config import cfg
 from module.ocr import ocr
 
 
@@ -61,7 +62,10 @@ class LauncherAutomation():
                     self.screenshot, self.screenshot_pos, self.screenshot_scale_factor = result
                     return result
                 else:
-                    self.logger.error("截图失败：没有找到游戏窗口")
+                    if cfg.playcover_enable and not cfg.cloud_game_enable:
+                        self.logger.error("截图失败：未能获取到 PlayCover 游戏画面（连接超时或窗口未就绪）")
+                    else:
+                        self.logger.error("截图失败：没有找到游戏窗口")
             except Exception as e:
                 self.logger.error(f"截图失败：{e}")
             time.sleep(1)

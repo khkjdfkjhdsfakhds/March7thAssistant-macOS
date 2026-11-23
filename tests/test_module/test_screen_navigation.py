@@ -20,8 +20,10 @@ import sys
 import threading
 import time
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SCREENS_CONFIG = ROOT / "assets" / "config" / "screens.json"
@@ -112,10 +114,22 @@ class _FakeAuto:
         return 1.0 if find_type == "image_threshold" else True
 
 
+class _InputInterrupted(RuntimeError):
+    pass
+
+
+class _GameWindowLost(RuntimeError):
+    pass
+
+
 def _load_screen_module(auto):
     """加载真实的 Screen 类，只替换掉依赖游戏环境的 module.automation。"""
     stubs = {
         "module.automation": _stub("module.automation", auto=auto),
+        "module.automation.background_input": _stub(
+            "module.automation.background_input",
+            InputInterrupted=_InputInterrupted, GameWindowLost=_GameWindowLost,
+        ),
         "module.config": _stub("module.config", cfg=MagicMock()),
         "module.logger": _stub("module.logger", log=MagicMock()),
     }
@@ -164,3 +178,133 @@ def test_relic_bag_navigation_keeps_menu_entry_untouched(monkeypatch):
 
     assert game.state == "bag_relicset"
     assert game.esc_transitions == [("guide3", "menu")]
+
+
+def test_background_window_errors_are_not_swallowed_as_unmatched(monkeypatch):
+    """后台模式下窗口持续不可用或游戏已退出：界面识别不能把它当作“未匹配”吞掉后反复重试。"""
+    screen, _game = _build_screen(monkeypatch, MENU_ENTRY_STACK)
+    auto = type(screen).__init__.__globals__["auto"]
+    for error in (_InputInterrupted("游戏窗口已最小化（已等待 60 秒）"), _GameWindowLost("游戏进程已退出")):
+        auto.find_element = MagicMock(side_effect=error)
+        with pytest.raises(type(error)):
+            screen.check_screen("guide3")
+        auto.find_element.assert_called_once()
+    auto.find_element = MagicMock(side_effect=_InputInterrupted("无法读写系统光标"))
+    with pytest.raises(_InputInterrupted):
+        screen.perform_operations(["auto.find_element('x', 'image')"])
+
+
+def test_screen_text_fallback_matches_on_one_frame(monkeypatch):
+    """text_fallback 在主线程复用同一帧 OCR 匹配并设置 current_screen。"""
+    from PIL import Image, ImageDraw
+    from module.ocr import ocr
+
+    auto = MagicMock()
+    module = _load_screen_module(auto)
+    monkeypatch.setattr(module, "cfg", SimpleNamespace(ui_profile="pc_1080", control_backend="playcover"))
+    screen = module.Screen.__new__(module.Screen)
+    screen.screen_map = {}
+    screen.current_screen = None
+    screen.current_screen_threshold = 0
+    screen.wait_screen_change_time = 0.5
+    screen.lock = threading.Lock()
+    screen.logger = MagicMock()
+    screen._add_screen(
+        "dummy_shadow",
+        "测试界面",
+        "./assets/images/nonexistent.png",
+        [],
+        text_fallback=[{"crop": [0, 0, 200, 64], "text": "凝滞虚影"}],
+    )
+
+    frame = Image.new("RGB", (1920, 1080))
+    ImageDraw.Draw(frame).rectangle((0, 0, 200, 64), fill="gold")
+
+    def capture():
+        auto.screenshot = frame
+        return frame, (0, 0, 1920, 1080), 1
+
+    auto.take_screenshot.side_effect = capture
+    auto.find_element.return_value = None
+    monkeypatch.setattr(ocr, "recognize_multi_lines", lambda _pixels: [(None, ("凝滞虚影", 1.0))])
+
+    assert screen.check_screen("dummy_shadow") is True
+    assert screen.current_screen == "dummy_shadow"
+    auto.take_screenshot.assert_called_once()
+
+
+@pytest.mark.parametrize("values, expected", [
+    ({}, "p"), ({"hotkey_message": "p"}, "p"),
+    ({"hotkey_message": "k"}, "k"), ({"hotkey_message": "f6"}, "f6"),
+])
+def test_message_navigation_uses_configured_key(monkeypatch, values, expected):
+    """真实界面图与导航读取短信按键；旧配置缺键时仍使用 P。"""
+    screen, game = _build_screen(monkeypatch, ["main"])
+    namespace = type(screen).__init__.__globals__
+    namespace["cfg"] = SimpleNamespace(get_game_hotkey=values.get)
+
+    def press_key(key):
+        assert key == expected
+        game.stack.append("incoming_message")
+
+    namespace["auto"].press_key = MagicMock(side_effect=press_key)
+    screen.change_to("incoming_message")
+
+    namespace["auto"].press_key.assert_called_once_with(expected)
+    assert screen.current_screen == game.state == "incoming_message"
+
+
+@pytest.mark.parametrize(("target", "config_key"), [
+    ("map", "hotkey_map"),
+    ("stellar_warp", "hotkey_warp"),
+    ("incoming_message", "hotkey_message"),
+])
+def test_navigation_dispatches_detected_game_hotkey(monkeypatch, target, config_key):
+    from module.config import game_hotkeys
+    from module.config.config import Config
+
+    screen, game = _build_screen(monkeypatch, ["main"])
+    namespace = type(screen).__init__.__globals__
+    config = Config.__new__(Config)
+    config.config = {config_key: "k"}
+    monkeypatch.setattr(game_hotkeys, "detect_game_hotkeys", MagicMock(return_value={config_key: "space"}))
+    namespace["cfg"] = config
+    namespace["auto"].press_key = MagicMock(side_effect=lambda _key: game.stack.append(target))
+
+    screen.change_to(target)
+
+    namespace["auto"].press_key.assert_called_once_with("space")
+    assert screen.current_screen == game.state == target
+    assert config.get_value(config_key) == "k"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="本地输入仅限 Windows")
+@pytest.mark.parametrize("mode", ["foreground", "background"])
+def test_message_key_reaches_selected_local_input_backend(monkeypatch, mode):
+    """保留统一输入入口：前后台均接收自定义按键，不向真实游戏发送输入。"""
+    from module.automation.automation import Automation
+    from module.game.local import LocalGameController
+
+    controller = object.__new__(LocalGameController)
+    controller.logger = MagicMock()
+    controller.window_name, controller.process_name = "game", "StarRail"
+    controller._config = SimpleNamespace(get_value={
+        "local_control_mode": mode, "background_mouse_protection": False,
+    }.get)
+    handler = controller.get_input_handler()
+    monkeypatch.setattr(handler, "press_key", MagicMock())
+    monkeypatch.setattr(
+        "module.automation.automation.get_game_controller",
+        lambda: SimpleNamespace(get_input_handler=lambda: handler),
+    )
+    auto = object.__new__(Automation)
+    auto._init_input()
+    try:
+        screen, _ = _build_screen(monkeypatch, ["main"])
+        namespace = type(screen).__init__.__globals__
+        namespace["cfg"] = SimpleNamespace(get_game_hotkey={"hotkey_message": "k"}.get)
+        namespace["auto"] = auto
+        screen.perform_operations(screen.get_operations("main", "incoming_message"))
+        handler.press_key.assert_called_once_with("k")
+    finally:
+        auto.close_input()

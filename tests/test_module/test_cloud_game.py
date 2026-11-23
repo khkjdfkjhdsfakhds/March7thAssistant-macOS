@@ -2,11 +2,64 @@ import unittest
 import base64
 import os
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 from urllib3.exceptions import ReadTimeoutError
-from selenium.common.exceptions import TimeoutException, WebDriverException
+from selenium.common.exceptions import InvalidSessionIdException, TimeoutException, WebDriverException
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import wait as selenium_wait
+import pytest
 
-from module.game.cloud import CloudGameController
+from module.game.cloud import CloudGameController, CloudGameZeroDurationError
+from utils.pause import PauseController, RunStopRequested
+
+
+@pytest.mark.parametrize("stop_at", ("playtime", "enter_button", "paid_queue"))
+def test_enter_cloud_game_stops_before_the_next_browser_click(monkeypatch, stop_at):
+    from module.game import cloud as cloud_module
+
+    control = PauseController()
+    control._enabled = True
+    monkeypatch.setattr(cloud_module, "pause_ctl", control)
+    controller = object.__new__(CloudGameController)
+    controller._preserve_browser_on_exit = False
+    controller.logger = MagicMock()
+    controller.cfg = SimpleNamespace(browser_dump_cookies_enable=False, cloud_game_max_queue_time=10,
+                                     cloud_game_use_paid_time=True)
+    controller._check_login = MagicMock(return_value=True)
+    controller.driver = driver = MagicMock()
+    driver.command_executor._client_config.timeout = 120
+    driver.find_elements.return_value = []
+
+    def playtime():
+        if stop_at == "playtime":
+            control.request_stop()
+        return 10, 5
+
+    def find_button(*_):
+        if stop_at == "enter_button":
+            control.request_stop()
+        return SimpleNamespace(is_displayed=lambda: True)
+
+    clicks = []
+
+    def execute(script, *_):
+        if ".click();" in script:
+            clicks.append((script.strip(), control.stop_requested))
+        if 'return "select_queue"' in script:
+            if not clicks:
+                return "lobby"
+            if stop_at == "paid_queue":
+                control.request_stop()
+            return "select_queue"
+
+    controller._get_remaining_playtime = playtime
+    driver.find_element.side_effect = find_button
+    driver.execute_script.side_effect = execute
+
+    with pytest.raises(RunStopRequested):
+        controller.enter_cloud_game()
+
+    assert clicks == ([("arguments[0].click();", False)] if stop_at == "paid_queue" else [])
 
 
 class FakeDriver:
@@ -32,6 +85,7 @@ class TestCloudGameSessionState(unittest.TestCase):
     def setUp(self):
         self.controller = object.__new__(CloudGameController)
         self.controller.driver = MagicMock()
+        self.controller.driver.command_executor._client_config.timeout = 120
         self.visible = MagicMock()
         self.visible.is_displayed.return_value = True
         self.hidden = MagicMock()
@@ -61,6 +115,206 @@ class TestCloudGameSessionState(unittest.TestCase):
     def test_no_driver_is_not_in_game(self):
         self.controller.driver = None
         self.assertFalse(self.controller.is_in_game())
+
+    def test_player_probe_bounds_webdriver_timeout_and_restores_previous_value(self):
+        config = self.controller.driver.command_executor._client_config
+
+        def find(*_):
+            self.assertEqual(config.timeout, 3)
+            raise ReadTimeoutError(None, None, "read timeout")
+
+        self.controller.driver.find_elements.side_effect = find
+        with self.assertRaisesRegex(TimeoutError, "读取云游戏会话状态超时"):
+            self.controller.is_in_game()
+        self.assertEqual(config.timeout, 120)
+
+
+class TestCloudGameWorkflowConnection(unittest.TestCase):
+    def setUp(self):
+        self.controller = object.__new__(CloudGameController)
+        self.controller.driver = None
+        self.controller.cfg = SimpleNamespace(
+            browser_type="integrated", browser_debug_port=9222,
+            browser_headless_enable=True,
+        )
+        self.controller.logger = MagicMock()
+        self.controller.user_profile_path = "."
+        self.controller._prepare_browser_and_driver = MagicMock(return_value=("chrome", "chromedriver"))
+        self.controller.get_m7a_browsers = MagicMock(return_value=[])
+        self.controller.close_all_m7a_browser = MagicMock()
+        self.controller._get_port_bind_error = MagicMock()
+        self.controller._find_available_port = MagicMock()
+        self.controller._refresh_page = MagicMock()
+        self.controller.enter_cloud_game = MagicMock()
+
+    def browser(self, headless):
+        process = MagicMock()
+        process.cmdline.return_value = [
+            "chrome", CloudGameController.BROWSER_TAG, "--remote-debugging-port=9333",
+        ] + (["--headless=new"] if headless else [])
+        self.controller.get_m7a_browsers.return_value = [process]
+
+    @staticmethod
+    def driver(in_game=True):
+        driver = MagicMock()
+        driver.command_executor._client_config.timeout = 120
+        player = MagicMock()
+        player.is_displayed.return_value = in_game
+        driver.find_elements.side_effect = lambda by, selector: [player] if selector == ".game-player" else []
+        return driver
+
+    def test_missing_browser_does_not_launch_one(self):
+        self.assertFalse(self.controller.connect_to_running_game())
+        self.controller._prepare_browser_and_driver.assert_not_called()
+        self.controller.close_all_m7a_browser.assert_not_called()
+        self.controller.enter_cloud_game.assert_not_called()
+
+    def test_browser_discovery_supports_desktop_platforms_and_requires_tag(self):
+        controller = object.__new__(CloudGameController)
+        for name in ("chrome.exe", "chrome", "Google Chrome for Testing", "Google Chrome",
+                     "msedge.exe", "Microsoft Edge", "chromium", "chromium-browser"):
+            with self.subTest(name=name):
+                browser = MagicMock()
+                browser.info = {"name": name}
+                browser.cmdline.return_value = [name, CloudGameController.BROWSER_TAG]
+                unrelated = MagicMock()
+                unrelated.info = {"name": name}
+                unrelated.cmdline.return_value = [name]
+                with patch("module.game.cloud.psutil.process_iter", return_value=[browser, unrelated]):
+                    self.assertEqual(controller.get_m7a_browsers(), [browser])
+
+    def test_connects_to_actual_browser_mode_and_debug_port(self):
+        for headless in (False, True):
+            with self.subTest(headless=headless):
+                self.controller.driver = None
+                self.controller.cfg.browser_headless_enable = not headless
+                self.browser(headless)
+                driver = self.driver()
+                with patch("module.game.cloud.webdriver.Chrome", return_value=driver) as connect:
+                    self.assertTrue(self.controller.connect_to_running_game())
+                connect.assert_called_once()
+                options = connect.call_args.kwargs["options"]
+                self.assertEqual(options.debugger_address, "127.0.0.1:9333")
+                self.assertEqual(options.arguments, [])
+                self.assertIs(self.controller.driver, driver)
+                self.assertEqual(self.controller.is_headless(), headless)
+                self.assertEqual(self.controller.cfg.browser_headless_enable, not headless)
+                driver.execute_cdp_cmd.assert_any_call("Emulation.setDeviceMetricsOverride", {
+                    "width": 1920, "height": 1080, "deviceScaleFactor": 1, "mobile": False,
+                })
+        self.controller._get_port_bind_error.assert_not_called()
+        self.controller._find_available_port.assert_not_called()
+        self.controller.close_all_m7a_browser.assert_not_called()
+        self.controller._refresh_page.assert_not_called()
+        self.controller.enter_cloud_game.assert_not_called()
+
+    def test_failed_connection_does_not_close_or_replace_browser(self):
+        self.browser(False)
+        with patch("module.game.cloud.webdriver.Chrome", side_effect=WebDriverException("lost")) as connect:
+            self.assertFalse(self.controller.connect_to_running_game())
+        connect.assert_called_once()
+        self.controller.close_all_m7a_browser.assert_not_called()
+        self.controller._refresh_page.assert_not_called()
+        self.controller.enter_cloud_game.assert_not_called()
+
+    def test_failed_viewport_override_drops_driver_before_next_attach(self):
+        self.browser(False)
+        stale_driver, next_driver = self.driver(), self.driver()
+        stale_driver.service.process.poll.return_value = None
+        stale_driver.execute_cdp_cmd.side_effect = WebDriverException("viewport unavailable")
+
+        with patch("module.game.cloud.webdriver.Chrome", side_effect=[stale_driver, next_driver]) as connect:
+            self.assertFalse(self.controller.connect_to_running_game())
+            self.assertIsNone(self.controller.driver)
+            self.assertTrue(self.controller.connect_to_running_game())
+
+        self.assertEqual(connect.call_count, 2)
+        stale_driver.service.process.terminate.assert_called_once_with()
+        next_driver.execute_cdp_cmd.assert_called_once()
+        self.controller.close_all_m7a_browser.assert_not_called()
+
+    def test_failed_player_probe_drops_stale_driver_before_next_attach(self):
+        self.browser(False)
+        self.controller.driver = stale_driver = self.driver()
+        stale_driver.find_elements.side_effect = WebDriverException("invalid session")
+        stale_driver.service.process.poll.return_value = None
+
+        with patch("module.game.cloud.webdriver.Chrome", return_value=self.driver()) as connect:
+            self.assertFalse(self.controller.connect_to_running_game())
+            self.assertTrue(self.controller.connect_to_running_game())
+
+        connect.assert_called_once()
+        stale_driver.service.process.terminate.assert_called_once_with()
+        self.controller.close_all_m7a_browser.assert_not_called()
+
+    def test_transient_disconnect_reuses_the_same_driver(self):
+        self.controller.driver = driver = self.driver()
+        in_game = driver.find_elements.side_effect
+        visible = SimpleNamespace(is_displayed=lambda: True)
+        driver.find_elements.side_effect = lambda *_: [visible]
+
+        self.assertFalse(self.controller.connect_to_running_game())
+        self.assertIs(self.controller.driver, driver)
+
+        driver.find_elements.side_effect = in_game
+        self.assertTrue(self.controller.connect_to_running_game())
+        self.assertIs(self.controller.driver, driver)
+        self.controller.close_all_m7a_browser.assert_not_called()
+
+    def test_connect_only_exit_preserves_browser_and_normal_start_restores_cleanup(self):
+        self.browser(True)
+        driver = self.driver()
+        driver.service.process.poll.return_value = None
+        with patch("module.game.cloud.webdriver.Chrome", return_value=driver):
+            self.assertTrue(self.controller.connect_to_running_game())
+        self.controller._clean_at_exit()
+
+        self.assertIsNone(self.controller.driver)
+        driver.service.process.terminate.assert_called_once_with()
+        driver.quit.assert_not_called()
+        self.controller.close_all_m7a_browser.assert_not_called()
+
+        with patch.object(self.controller, "_connect_or_create_browser"), patch.object(
+                self.controller, "_confirm_viewport_resolution"):
+            self.assertTrue(self.controller.start_game_process())
+        self.controller._clean_at_exit()
+        self.controller.close_all_m7a_browser.assert_called_once_with(headless=True)
+
+    def test_cleanup_follows_actual_cloud_session(self):
+        self.browser(True)
+        driver = self.driver()
+        with (
+            patch("module.game.cloud.atexit.register") as register,
+            patch("module.game.cloud.webdriver.Chrome", return_value=driver),
+            patch.object(self.controller, "_confirm_viewport_resolution"),
+        ):
+            self.assertTrue(self.controller.start_game_process())
+            self.assertTrue(self.controller.start_game_process())
+        register.assert_called_once_with(self.controller._clean_at_exit)
+
+        with patch.object(os.path, "exists", return_value=False):
+            self.assertTrue(self.controller.stop_game())
+        self.controller.close_all_m7a_browser.reset_mock()
+        self.controller._clean_at_exit()
+        self.controller.close_all_m7a_browser.assert_not_called()
+
+    def test_connected_browser_without_game_does_not_enter_queue(self):
+        self.browser(False)
+        with patch("module.game.cloud.webdriver.Chrome", return_value=self.driver(in_game=False)):
+            self.assertFalse(self.controller.connect_to_running_game())
+        self.controller.enter_cloud_game.assert_not_called()
+
+    def test_existing_driver_is_reused(self):
+        self.controller.driver = self.driver()
+        self.assertTrue(self.controller.connect_to_running_game())
+        self.controller.get_m7a_browsers.assert_not_called()
+
+    def test_disconnected_session_is_rejected(self):
+        self.controller.driver = self.driver()
+        self.controller.is_in_game = MagicMock(side_effect=ConnectionError("云游戏会话已断开"))
+        self.assertFalse(self.controller.connect_to_running_game())
+        self.controller.close_all_m7a_browser.assert_not_called()
+        self.controller.enter_cloud_game.assert_not_called()
 
 
 class TestCloudGameScreenshotTimeout(unittest.TestCase):
@@ -205,6 +459,279 @@ class TestCloudGamePointerLock(unittest.TestCase):
         self.assertEqual(controller.driver.commands, [])
 
 
+class TestCloudGameHeadlessOverride(unittest.TestCase):
+    def create_controller(self, configured_headless=True):
+        controller = object.__new__(CloudGameController)
+        controller.cfg = MagicMock(browser_headless_enable=configured_headless)
+        controller._headless_override = None
+        return controller
+
+    def test_headless_mode_follows_config_by_default(self):
+        controller = self.create_controller(configured_headless=True)
+
+        self.assertTrue(controller.is_headless())
+
+    def test_visible_override_does_not_change_config(self):
+        controller = self.create_controller(configured_headless=True)
+        controller._headless_override = False
+
+        self.assertFalse(controller.is_headless())
+        self.assertTrue(controller.cfg.browser_headless_enable)
+
+    def test_start_process_records_runtime_override(self):
+        controller = self.create_controller(configured_headless=True)
+        controller._connect_or_create_browser = MagicMock()
+        controller._confirm_viewport_resolution = MagicMock()
+
+        self.assertTrue(controller.start_game_process(headless=False))
+        controller._connect_or_create_browser.assert_called_once_with(headless=False)
+        self.assertFalse(controller.is_headless())
+        self.assertTrue(controller.cfg.browser_headless_enable)
+
+        # 下一次正常启动应恢复全局无窗口设置。
+        self.assertTrue(controller.start_game_process())
+        controller._connect_or_create_browser.assert_called_with(headless=True)
+        self.assertTrue(controller.is_headless())
+
+    def test_visible_override_stays_visible_after_login(self):
+        controller = self.create_controller()
+        controller.driver = None
+        controller._connect_or_create_browser = MagicMock()
+        controller._confirm_viewport_resolution = MagicMock()
+        controller.logger = MagicMock()
+        controller._check_login = MagicMock(side_effect=[False, True, True])
+        controller._get_login_timeout_seconds = MagicMock(return_value=300)
+        controller._check_login_timeout = MagicMock()
+        controller._restart_browser = MagicMock()
+        controller._run_qr_login_flow = MagicMock()
+        controller._get_remaining_playtime = MagicMock(return_value=(60, 0))
+        controller._click_enter_game = MagicMock()
+        controller._wait_in_queue = MagicMock(return_value=True)
+        controller._save_cookies = MagicMock()
+
+        self.assertTrue(controller.start_game_process(headless=False))
+        self.assertTrue(controller.enter_cloud_game())
+
+        controller._restart_browser.assert_not_called()
+        controller._run_qr_login_flow.assert_not_called()
+        self.assertFalse(controller.is_headless())
+        self.assertTrue(controller.cfg.browser_headless_enable)
+
+    def test_start_game_passes_headless_override_to_cloud_browser(self):
+        import tasks.game
+
+        with patch("tasks.game.cloud_game") as mock_cloud_game, \
+             patch("tasks.game.cfg", SimpleNamespace(cloud_game_enable=True)), \
+             patch("tasks.game.auto"), \
+             patch("tasks.game.screen") as mock_screen, \
+             patch("tasks.game.log"):
+
+            mock_cloud_game.start_game_process.return_value = True
+            mock_cloud_game.is_in_game.return_value = True
+            mock_screen.get_current_screen.return_value = True
+
+            tasks.game.start(headless=False)
+
+            mock_cloud_game.start_game_process.assert_called_once_with(headless=False)
+
+
+class TestCloudGameUnconfirmedLogin(unittest.TestCase):
+    """登录状态未确认（_check_login 返回 None）不等于未登录。"""
+
+    def create_controller(self, restart_on_not_logged_in=False):
+        controller = object.__new__(CloudGameController)
+        controller.cfg = MagicMock(
+            browser_headless_enable=True,
+            browser_headless_restart_on_not_logged_in=restart_on_not_logged_in,
+            browser_dump_cookies_enable=False,
+        )
+        controller._headless_override = None
+        controller.driver = None
+        controller.logger = MagicMock()
+        controller._connect_or_create_browser = MagicMock()
+        controller._confirm_viewport_resolution = MagicMock()
+        controller._get_login_timeout_seconds = MagicMock(return_value=300)
+        controller._check_login_timeout = MagicMock()
+        controller._restart_browser = MagicMock()
+        controller._run_qr_login_flow = MagicMock()
+        controller._get_remaining_playtime = MagicMock(return_value=(60, 0))
+        controller._click_enter_game = MagicMock()
+        controller._wait_in_queue = MagicMock(return_value=True)
+        controller._save_cookies = MagicMock()
+        controller.try_dump_page = MagicMock()
+        self.assertTrue(controller.start_game_process())
+        return controller
+
+    def test_headless_restart_starts_a_new_page_readiness_wait(self):
+        controller = self.create_controller(restart_on_not_logged_in=True)
+        controller._check_login = MagicMock(side_effect=[False, True, True])
+
+        self.assertTrue(controller.enter_cloud_game())
+
+        self.assertEqual(controller._restart_browser.call_args_list, [call(headless=False), call(headless=True)])
+        wait_for_page = call(timeout=CloudGameController.LOGIN_PAGE_READY_TIMEOUT)
+        self.assertEqual(controller._check_login.call_args_list, [wait_for_page, call(), wait_for_page])
+
+    def test_preserved_browser_still_fails_on_first_unconfirmed_state(self):
+        controller = self.create_controller()
+        controller._preserve_browser_on_exit = True
+        controller._check_login = MagicMock(side_effect=[None, True])
+
+        self.assertFalse(controller.enter_cloud_game())
+
+        controller._check_login.assert_called_once()
+        controller._run_qr_login_flow.assert_not_called()
+
+
+@pytest.mark.parametrize("fault", (
+    "slow_lobby", "slow_login", "renderer_timeout", "transport_timeout", "not_ready", "stop", "session_lost",
+))
+def test_normal_cloud_startup_login_wait(monkeypatch, fault):
+    from module.game import cloud
+    from tasks import game
+
+    elapsed = page_opened_at = 0.0
+    logged_in = playing = False
+    lobby_clicks = []
+    login_probes = []
+    qr_requests = []
+    probe_failure = {
+        "renderer_timeout": TimeoutException("测试渲染器短暂超时"),
+        "transport_timeout": ReadTimeoutError(None, None, "测试驱动读取短暂超时"),
+    }.get(fault)
+
+    def sleep(seconds):
+        nonlocal elapsed
+        elapsed += seconds
+        if elapsed > 180:
+            pytest.fail("云游戏登录模拟超过时间上限")
+
+    clock = SimpleNamespace(monotonic=lambda: elapsed, sleep=sleep)
+    for module in (cloud, game, selenium_wait):
+        monkeypatch.setattr(module, "time", clock)
+    control = PauseController()
+    control._enabled = True
+    monkeypatch.setattr(control, "_arm_stop_timer", MagicMock())
+    monkeypatch.setattr("utils.pause.log", MagicMock())
+    for module in (cloud, game):
+        monkeypatch.setattr(module, "pause_ctl", control)
+
+    cfg = SimpleNamespace(
+        script_path=None, control_backend="cloud", start_game_timeout=1, browser_headless_enable=True,
+        browser_headless_restart_on_not_logged_in=False,
+        browser_dump_cookies_enable=False, cloud_game_max_queue_time=10,
+    )
+    controller = CloudGameController(cfg=cfg, logger=MagicMock())
+    driver = MagicMock()
+    client_config = driver.command_executor._client_config
+    client_config.timeout = 120
+    element = SimpleNamespace(is_displayed=lambda: True)
+    driver.find_element.return_value = element
+    marker_after = 30 if fault == "not_ready" else 16
+
+    def entry_state():
+        if playing:
+            return "game_running"
+        if logged_in:
+            return "signed_in_lobby"
+        if elapsed - page_opened_at < marker_after:
+            return None
+        return "login" if fault == "slow_login" else "signed_in_lobby"
+
+    def find_elements(by, selector):
+        nonlocal probe_failure
+        # 计入驱动请求耗时，避免模拟时钟总是恰好落在 Selenium 的轮询截止点。
+        if by == By.ID and selector == "mihoyo-login-platform-iframe":
+            login_probes.append((elapsed, client_config.timeout))
+            sleep(0.01)
+            return [element] if entry_state() == "login" else []
+        if not selector.startswith("div.user-aid.wel-card__aid"):
+            return []
+        login_probes.append((elapsed, client_config.timeout))
+        age = elapsed - page_opened_at
+        if fault == "session_lost" and controller._connect_or_create_browser.call_count == 1:
+            raise InvalidSessionIdException("测试会话已断开")
+        if fault == "stop" and age >= 8:
+            control.request_stop()
+            return []
+        if probe_failure is not None and age >= 1:
+            error, probe_failure = probe_failure, None
+            sleep(0.01)
+            raise error
+        sleep(30 - age if fault == "not_ready" and 29.5 <= age < 30 else 0.01)
+        return [element] if entry_state() == "signed_in_lobby" else []
+
+    def execute(script, *_):
+        nonlocal playing
+        if script == "arguments[0].click();":
+            lobby_clicks.append(elapsed)
+            playing = True
+        if "return entryState();" in script:
+            return entry_state()
+        return playing
+
+    def open_browser(**_):
+        nonlocal page_opened_at
+        page_opened_at = elapsed
+        controller.driver = driver
+
+    def complete_qr_login(*_):
+        nonlocal logged_in
+        qr_requests.append((elapsed, entry_state()))
+        if entry_state() == "login":
+            logged_in = True
+        else:
+            sleep(10)
+
+    driver.find_elements.side_effect = find_elements
+    driver.execute_script.side_effect = execute
+    controller._connect_or_create_browser = MagicMock(side_effect=open_browser)
+    controller._run_qr_login_flow = MagicMock(side_effect=complete_qr_login)
+    controller._get_login_timeout_seconds = MagicMock(return_value=60)
+    controller._get_remaining_playtime = MagicMock(return_value=(60, 0))
+    controller.try_dump_page = MagicMock()
+    controller.stop_game = MagicMock()
+    monkeypatch.setattr(game, "cfg", cfg)
+    monkeypatch.setattr(game, "cloud_game", controller)
+    monkeypatch.setattr(game, "log", MagicMock())
+    auto = MagicMock(**{"click_element.return_value": True})
+    monkeypatch.setattr(game, "auto", auto)
+    monkeypatch.setattr(game, "screen", MagicMock(**{"get_current_screen.return_value": True}))
+
+    if fault == "not_ready":
+        with pytest.raises(game.GameStartupUnavailable, match="云游戏页面未就绪"):
+            game.start_game()
+        assert elapsed == pytest.approx(30)
+        last_probe_at, last_probe_timeout = login_probes[-1]
+        assert 29.5 <= last_probe_at < 30
+        assert last_probe_timeout == pytest.approx(30 - last_probe_at)
+    elif fault == "stop":
+        with pytest.raises(RunStopRequested):
+            game.start_game()
+        assert login_probes[-1][0] == elapsed
+        assert 8 <= elapsed < 8.6
+    else:
+        game.start_game()
+
+    assert controller._connect_or_create_browser.call_count == (2 if fault == "session_lost" else 1)
+    assert controller.stop_game.call_count == (1 if fault == "session_lost" else 0)
+    if fault == "slow_login":
+        [(qr_at, marker)] = qr_requests
+        assert marker == "login" and 16 <= qr_at < 17
+    else:
+        assert not qr_requests
+    assert client_config.timeout == 120
+    if fault in {"not_ready", "stop"}:
+        assert controller._preserve_browser_on_exit
+        controller._get_login_timeout_seconds.assert_not_called()
+        assert not lobby_clicks
+        auto.click_element.assert_not_called()
+    else:
+        [clicked_at] = lobby_clicks
+        assert 16 <= clicked_at - page_opened_at < 17
+        auto.click_element.assert_called_once()
+
+
 class TestCloudGameDebugPort(unittest.TestCase):
     def create_controller(self):
         controller = object.__new__(CloudGameController)
@@ -277,3 +804,97 @@ class TestCloudGameDebugPort(unittest.TestCase):
             ("127.0.0.1", 0)
         )
         self.assertEqual(port, 49152)
+
+
+class TestCloudGameZeroDuration(unittest.TestCase):
+    def test_error_type(self):
+        self.assertTrue(issubclass(CloudGameZeroDurationError, RuntimeError))
+
+    def test_enter_cloud_game_raises_zero_duration_error(self):
+        controller = object.__new__(CloudGameController)
+        controller.driver = MagicMock()
+        controller._preserve_browser_on_exit = False
+        controller.driver.command_executor._client_config.timeout = 120
+        controller.cfg = MagicMock()
+        controller.cfg.browser_headless_enable = False
+        controller.cfg.browser_dump_cookies_enable = False
+        controller.cfg.cloud_game_url = "https://sr.mihoyo.com/cloud"
+
+        controller._check_login = MagicMock(return_value=True)
+        controller._get_remaining_playtime = MagicMock(return_value=(0, 0))
+        controller.log_info = MagicMock()
+        controller.log_warning = MagicMock()
+        controller.log_error = MagicMock()
+        controller.log_debug = MagicMock()
+
+        with self.assertRaises(CloudGameZeroDurationError):
+            controller.enter_cloud_game()
+
+    def test_start_game_zero_duration_stops_browser_without_retry(self):
+        import tasks.game
+
+        with patch("tasks.game.cloud_game") as mock_cloud_game, \
+             patch("tasks.game.cfg", SimpleNamespace(cloud_game_enable=True)), \
+             patch("tasks.game.auto"), \
+             patch("tasks.game.log"):
+
+            mock_cloud_game.start_game_process.return_value = True
+            mock_cloud_game.is_in_game.return_value = False
+            mock_cloud_game.enter_cloud_game.side_effect = CloudGameZeroDurationError("云游戏剩余时长为 0，停止运行")
+
+            with self.assertRaises(CloudGameZeroDurationError):
+                tasks.game.start_game()
+
+            self.assertEqual(mock_cloud_game.enter_cloud_game.call_count, 1)
+            mock_cloud_game.stop_game.assert_called_once()
+
+    def test_zero_duration_waits_for_next_scheduled_run_in_loop_mode(self):
+        import tasks.game
+
+        with patch("tasks.game.cfg") as mock_cfg, \
+             patch("tasks.game.notif") as mock_notif, \
+             patch("tasks.game.log"), \
+             patch("tasks.game.after_finish_is_loop") as mock_wait:
+
+            mock_cfg.after_finish = "Loop"
+            mock_cfg.notify_template = {"ErrorOccurred": "发生错误 {error}"}
+
+            self.assertTrue(tasks.game.wait_after_cloud_zero_duration(CloudGameZeroDurationError("时长为 0")))
+
+            mock_notif.flush_batch.assert_called_once()
+            mock_wait.assert_called_once_with()
+
+    def test_zero_duration_is_left_to_caller_outside_loop_mode(self):
+        import tasks.game
+
+        with patch("tasks.game.cfg") as mock_cfg, \
+             patch("tasks.game.notif") as mock_notif, \
+             patch("tasks.game.after_finish_is_loop") as mock_wait:
+
+            mock_cfg.after_finish = "None"
+
+            self.assertFalse(tasks.game.wait_after_cloud_zero_duration(CloudGameZeroDurationError("时长为 0")))
+
+            mock_notif.flush_batch.assert_not_called()
+            mock_wait.assert_not_called()
+
+    def test_after_finish_is_loop_uses_schedule_without_power_check(self):
+        import tasks.game
+
+        with patch("tasks.game.cfg") as mock_cfg, \
+             patch("tasks.game.Power") as mock_power, \
+             patch("tasks.game.get_game_controller"), \
+             patch("tasks.game.Date") as mock_date, \
+             patch("tasks.game.is_gui_started", return_value=True), \
+             patch("tasks.game.notif"), \
+             patch("tasks.game.log"), \
+             patch("sys.exit", side_effect=SystemExit(0)):
+
+            mock_cfg.loop_mode = "power"
+            mock_cfg.scheduled_time = "4:00"
+
+            with self.assertRaises(SystemExit):
+                tasks.game.after_finish_is_loop()
+
+            mock_power.get.assert_not_called()
+            mock_date.time_to_seconds.assert_called_once_with("4:00")

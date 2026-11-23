@@ -23,7 +23,20 @@ def qapp():
 
 
 @pytest.fixture
-def dlg(qapp):
+def isolated_hotkey_config(tmp_path, monkeypatch):
+    from module.config import cfg
+
+    monkeypatch.setattr(cfg, "config", cfg.config.copy())
+    monkeypatch.setattr(cfg, "config_path", str(tmp_path / "config.yaml"))
+    monkeypatch.setattr(type(cfg), "_readonly", False)
+    monkeypatch.setitem(cfg.config, "game_path", "")
+    monkeypatch.setitem(cfg.config, "hotkey_message", "p")
+    cfg.save_config()
+    return cfg
+
+
+@pytest.fixture
+def dlg(qapp, isolated_hotkey_config):
     # 注意：父窗口必须与弹窗同样保活，否则 GC 会连带销毁 C++ 对象
     # 尺寸刻意贴近常见主窗口（较矮），复现「弹窗高于窗口被裁切」的场景
     from PySide6.QtWidgets import QWidget
@@ -83,9 +96,118 @@ class TestHotkeyInterfaceLayout:
         for card in dlg.pushButton_dict.values():
             assert card.width() >= card.minimumSizeHint().width()
 
-    def test_all_hotkeys_listed_including_pause(self, dlg):
-        assert "hotkey_pause_task" in dlg.pushButton_dict
-        assert len(dlg.pushButton_dict) == 7
+    def test_all_hotkeys_listed_including_message_and_pause(self, dlg):
+        assert set(dlg.pushButton_dict) == {
+            "hotkey_interact", "hotkey_character_details",
+            "hotkey_technique", "hotkey_map", "hotkey_warp", "hotkey_message",
+            "hotkey_auto_battle", "hotkey_stop_task", "hotkey_pause_task",
+            "hotkey_toggle_autoplot",
+        }
+
+
+@pytest.mark.parametrize("confirm", [True, False])
+def test_detected_keys_preview_and_toggle_confirm_or_cancel(
+    qapp, qtbot, isolated_hotkey_config, monkeypatch, confirm,
+):
+    from unittest.mock import Mock
+
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QWidget
+    from app.sub_interfaces import hotkey_interface as module
+
+    cfg = isolated_hotkey_config
+    flag = module.AUTO_DETECT_GAME_HOTKEYS
+    cfg.config.pop(flag, None)
+    cfg.set_value("hotkey_map", "n")
+    detect = Mock(return_value={"hotkey_map": "space"})
+    monkeypatch.setattr(module, "detect_game_hotkeys", detect)
+    parent = QWidget()
+    parent.resize(952, 635)
+    qtbot.addWidget(parent)
+    parent.show()
+    dialog = module.HotkeyInterface(parent)
+    qtbot.addWidget(dialog)
+    dialog.show()
+    qapp.processEvents()
+
+    switch = dialog.auto_detect_switch
+    map_card = dialog.pushButton_dict["hotkey_map"]
+    assert dialog._scroll.widget().layout().itemAt(0).widget() is switch.parentWidget()
+    assert switch.isChecked()
+    assert map_card.contentLabel.text() == "Space"
+    assert map_card.button.isHidden()
+    for name in ("hotkey_message", "hotkey_stop_task"):
+        assert not dialog.pushButton_dict[name].button.isHidden()
+    detect.assert_called_once_with(cfg)
+
+    qtbot.mouseClick(switch.indicator, Qt.MouseButton.LeftButton)
+    assert not switch.isChecked()
+    assert map_card.contentLabel.text() == "N"
+    assert not map_card.button.isHidden()
+    assert cfg.get_value(flag, True)
+
+    qtbot.mouseClick(dialog.yesButton if confirm else dialog.cancelButton, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(dialog.isHidden, timeout=2000)
+    cfg._load_config(save=False)
+    assert cfg.get_value(flag, True) is (not confirm)
+    assert cfg.get_value("hotkey_map") == "n"
+
+
+@pytest.mark.parametrize("name, original", [
+    ("hotkey_interact", "f"),
+    ("hotkey_character_details", "c"),
+])
+def test_prompt_hotkey_rejects_keys_without_templates(dlg, isolated_hotkey_config, qtbot, name, original):
+    from PySide6.QtCore import Qt
+
+    card = dlg.pushButton_dict[name]
+    cfg = isolated_hotkey_config
+    qtbot.mousePress(card.button, Qt.MouseButton.LeftButton)
+    qtbot.keyClick(card, Qt.Key.Key_Left)
+    assert cfg.get_value(name) == original
+    assert card.button.text() == "该按键暂无识别模板"
+    qtbot.keyClick(card, Qt.Key.Key_1, Qt.KeyboardModifier.KeypadModifier)
+    assert cfg.get_value(name) == original
+    qtbot.keyClick(card, Qt.Key.Key_F1)
+    assert cfg.get_value(name) == "f1"
+    qtbot.keyClick(card, Qt.Key.Key_F12)
+    assert cfg.get_value(name) == "f12"
+    assert card.contentLabel.text() == "F12"
+    qtbot.keyClick(card, Qt.Key.Key_Space)
+    assert cfg.get_value(name) == "space"
+    assert card.contentLabel.text() == "Space"
+    qtbot.mouseRelease(card.button, Qt.MouseButton.LeftButton)
+
+
+class TestMessageHotkey:
+    @pytest.mark.parametrize("confirm, expected", [(True, "k"), (False, "p")])
+    def test_edit_confirm_or_cancel_and_reopen(
+        self, dlg, isolated_hotkey_config, qtbot, confirm, expected
+    ):
+        from PySide6.QtCore import Qt
+        from app.sub_interfaces.hotkey_interface import HotkeyInterface
+
+        cfg = isolated_hotkey_config
+        card = dlg.pushButton_dict["hotkey_message"]
+        assert card.contentLabel.text() == "P"
+        qtbot.mousePress(card.button, Qt.MouseButton.LeftButton)
+        qtbot.keyClick(card, Qt.Key.Key_K)
+        qtbot.mouseRelease(card.button, Qt.MouseButton.LeftButton)
+        assert cfg.get_value("hotkey_message") == "k"
+        assert card.contentLabel.text() == "K"
+
+        qtbot.mouseClick(
+            dlg.yesButton if confirm else dlg.cancelButton,
+            Qt.MouseButton.LeftButton,
+        )
+        qtbot.waitUntil(dlg.isHidden, timeout=2000)
+
+        cfg._load_config()
+        assert cfg.get_value("hotkey_message") == expected
+        reopened = HotkeyInterface(dlg.parentWidget())
+        qtbot.addWidget(reopened)
+        reopened.show()
+        assert reopened.pushButton_dict["hotkey_message"].contentLabel.text() == expected.upper()
 
 
 class TestHotkeyCancelRestore:

@@ -147,6 +147,12 @@ class PlayCoverInput(InputBase):
                 self.game.cg_client.mouse_move(x, y, dragging=False)
             self._cursor = (x, y)
 
+    def mouse_park(self, x, y):
+        """PlayCover 触控后端无需停放悬停指针，避免 cg 模式额外激活窗口抢占焦点。"""
+        with self._lock:
+            self._cursor = (x, y)
+        return True
+
     def swipe_to(self, x, y, duration=0.2):
         sx, sy = self._cursor
         if self._is_cg():

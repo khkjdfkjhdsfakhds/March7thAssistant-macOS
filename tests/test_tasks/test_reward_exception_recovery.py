@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 import sys
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 from PIL import Image
 import pytest
@@ -17,13 +17,21 @@ from tasks.activity import checkInactivity
 from tasks.base import task_steps
 from tasks.challenge import apocalyptic, memoryofchaos, purefiction
 from tasks.daily import redemption
-from tasks.reward import mail, quest, srpass
+from tasks.power import readout
+from tasks.reward import mail, quest, receipt, srpass
 from utils import screenshot_util
 from utils.runs import _TeeStream
 
 
+BUTTON = ((10, 20), (30, 40))
+
+
 def _make_button_image(rgb, size=(120, 40)):
     return Image.new("RGB", size, rgb)
+
+
+def _ocr_line(text):
+    return [([(0, 0), (10, 0), (10, 10), (0, 10)], (text, 0.99))]
 
 
 class TestOptionalReward:
@@ -76,6 +84,23 @@ class TestOptionalReward:
             with task_steps.optional_reward("短信奖励"):
                 raise RuntimeError("关闭弹窗时截图失败")
 
+    def test_closed_stderr_does_not_replace_the_optional_cleanup_error(self, monkeypatch):
+        original = StringIO()
+        original.close()
+        tee = _TeeStream(original, StringIO())
+        logger = logging.Logger("reward-cleanup-test")
+        logger.addHandler(logging.StreamHandler(tee))
+        auto = Mock(click_element=Mock(side_effect=RuntimeError("关闭已到账弹窗时截图失败")))
+        with monkeypatch.context() as patch:
+            patch.setattr(sys, "stderr", tee)
+            patch.setattr(logging, "raiseExceptions", True)
+            patch.setattr(task_steps, "log", logger)
+            patch.setattr(receipt, "auto", auto)
+            closed = receipt.close_item_reward()
+
+        assert closed is False
+        auto.click_element.assert_called_once()
+
 
 class TestRewardManagerRecovery:
     def _build_manager(self, monkeypatch):
@@ -91,6 +116,7 @@ class TestRewardManagerRecovery:
         monkeypatch.setattr(reward, "cfg", fake_cfg)
         monkeypatch.setattr(reward, "screen", Mock())
         monkeypatch.setattr(reward, "auto", Mock(find_element=Mock(return_value=((10, 10), (20, 20)))))
+        monkeypatch.setattr(reward.RewardManager, "_should_collect", staticmethod(lambda _kind: True))
         return reward.RewardManager()
 
     def test_continues_collecting_remaining_rewards_after_local_failure(self, monkeypatch):
@@ -130,10 +156,10 @@ class TestRewardManagerRecovery:
 
     def test_specific_reward_handles_local_failure_and_propagates_fatal(self, monkeypatch):
         manager = self._build_manager(monkeypatch)
-        monkeypatch.setattr(manager.mail, "start", Mock(side_effect=RuntimeError("临时识别错误")))
+        monkeypatch.setattr(manager.reward_instances["mail"], "start", Mock(side_effect=RuntimeError("临时识别错误")))
         assert manager.check_and_collect_specific_reward("mail") is False
 
-        monkeypatch.setattr(manager.mail, "start", Mock(side_effect=CGHelperError("helper_error", "Helper 崩溃")))
+        monkeypatch.setattr(manager.reward_instances["mail"], "start", Mock(side_effect=CGHelperError("helper_error", "Helper 崩溃")))
         with pytest.raises(CGHelperError):
             manager.check_and_collect_specific_reward("mail")
 
@@ -149,9 +175,11 @@ class TestMailGrayButtonFix:
             click_element=Mock(return_value=True),
         )
         monkeypatch.setattr(mail, "auto", fake_auto)
-        monkeypatch.setattr(mail, "time", SimpleNamespace(sleep=Mock()))
-        monkeypatch.setattr(mail.Base, "send_notification_with_screenshot", Mock())
-        return mail.Mail("邮件", True, "mail"), fake_auto
+        confirm = Mock()
+        close = Mock(return_value=True)
+        monkeypatch.setattr(mail, "confirm_item_reward", confirm)
+        monkeypatch.setattr(mail, "close_item_reward", close)
+        return mail.Mail("邮件", True, "mail"), fake_auto, confirm, close
 
     def test_gray_button_on_bright_background_returns_false_without_clicking(self, monkeypatch):
         # 构造底色很亮、只占 20% 浅灰字的置灰按钮图（旧版 muted_background >= 0.20 会漏判）
@@ -159,22 +187,24 @@ class TestMailGrayButtonFix:
         for x in range(10, 40):
             for y in range(10, 35):
                 img.putpixel((x, y), (170, 170, 170))
-        instance, fake_auto = self._setup_mail(monkeypatch, img)
+        instance, fake_auto, confirm, _ = self._setup_mail(monkeypatch, img)
 
         assert instance.run() is False
         fake_auto.click_element_with_pos.assert_not_called()
+        confirm.assert_not_called()
 
     def test_active_golden_button_clicks_and_returns_true(self, monkeypatch):
         img = _make_button_image((225, 185, 95), size=(140, 60))
-        instance, fake_auto = self._setup_mail(monkeypatch, img)
+        instance, fake_auto, confirm, close = self._setup_mail(monkeypatch, img)
 
         assert instance.run() is True
         fake_auto.click_element_with_pos.assert_called_once_with(((10, 10), (110, 40)))
-        mail.Base.send_notification_with_screenshot.assert_called_once()
+        confirm.assert_called_once_with("邮件奖励", notify=True)
+        close.assert_called_once_with()
 
     def test_unconfirmed_button_color_raises_runtime_error(self, monkeypatch):
         img = _make_button_image((40, 80, 140), size=(140, 60))
-        instance, fake_auto = self._setup_mail(monkeypatch, img)
+        instance, fake_auto, _, _ = self._setup_mail(monkeypatch, img)
 
         with pytest.raises(RuntimeError, match="未确认邮箱的全部领取按钮状态"):
             instance.run()
@@ -182,7 +212,7 @@ class TestMailGrayButtonFix:
 
     def test_no_button_with_empty_mail_text_returns_false(self, monkeypatch):
         img = _make_button_image((0, 0, 0), size=(140, 60))
-        instance, fake_auto = self._setup_mail(monkeypatch, img, button=None)
+        instance, fake_auto, _, _ = self._setup_mail(monkeypatch, img, button=None)
         fake_auto.find_element.side_effect = [None, None, None, True]
 
         assert instance.run() is False
@@ -210,21 +240,91 @@ class TestTaskOptionalRewardIntegration:
         srpass.SRPass("无名勋礼", True, "pass2").run()
         fake_screen.change_to.assert_called_once_with("pass1")
 
-    def test_quest_notifies_under_optional_reward_and_records_completion(self, monkeypatch):
-        fake_auto = Mock(
-            click_element=Mock(side_effect=[False, RuntimeError("礼盒识别异常")]),
-            find_element=Mock(return_value=True),
-        )
+    def test_quest_settle_tolerates_milestone_error_after_scan(self, monkeypatch):
         fake_cfg = SimpleNamespace(
-            set_value=Mock(),
+            reward_enable=True,
+            reward_quest_enable=True,
+            daily_enable=True,
+            save_timestamp=Mock(),
             notify_template={"DailyPracticeCompleted": "完成", "DailyPracticeNotCompleted": "未完成"},
         )
-        monkeypatch.setattr(quest, "auto", fake_auto)
         monkeypatch.setattr(quest, "cfg", fake_cfg)
-        monkeypatch.setattr(quest.Base, "send_notification_with_screenshot", Mock())
+        monkeypatch.setattr(quest, "screen", Mock())
+        monkeypatch.setattr(quest.Quest, "scan", Mock(return_value=(500, quest.TrainingCards({}), 1)))
+        monkeypatch.setattr(quest, "claimable_milestones", Mock(side_effect=RuntimeError("礼盒识别异常")))
+        notify = Mock()
+        monkeypatch.setattr(quest, "notify_reward", notify)
 
-        quest.Quest("每日实训", True, "guide2").run()
-        fake_cfg.set_value.assert_called_once_with("daily_tasks", {})
+        assert quest.Quest.settle(complete=False) is True
+        fake_cfg.save_timestamp.assert_called_once_with("last_run_timestamp")
+        notify.assert_called_once()
+
+    @pytest.mark.parametrize("full_notice, previous_page", [(True, False), (False, False), (False, True)])
+    def test_delayed_training_badge_checks_the_card_once_and_keeps_confirmed_progress(
+        self, monkeypatch, full_notice, previous_page,
+    ):
+        badge_crop = quest.ACTIVITY
+        card_crop = quest.CARDS
+        badge = Image.new("RGB", (60, 32))
+        cards = Image.new("RGB", (600, 240))
+        frames = []
+
+        def take_screenshot(crop):
+            frames.append(crop)
+            if crop == card_crop and not full_notice:
+                if previous_page and frames.count(card_crop) == 1:
+                    return cards, None, 1
+                raise RuntimeError("复核回执时截图失败")
+            return (badge if crop == badge_crop else cards), None, 1
+
+        def recognize(frame):
+            if frame is not cards:
+                return _ocr_line("400")
+            if previous_page:
+                return _ocr_line("拍照 0/1")
+            return _ocr_line("本日活跃度已满")
+
+        config = SimpleNamespace(
+            reward_enable=True, reward_quest_enable=True, daily_enable=True, daily_material_enable=True,
+            save_timestamp=Mock(), notify_template={"DailyPracticeCompleted": "实训完成通知"},
+        )
+        milestone = ((40, 50), (60, 70))
+        matches = [BUTTON, None]
+        if previous_page:
+            matches = [None, BUTTON, milestone, None]
+        auto = Mock(take_screenshot=Mock(side_effect=take_screenshot), screenshot=cards,
+                    find_element=Mock(side_effect=matches), click_element_with_pos=Mock(return_value=True))
+        monkeypatch.setattr(quest, "cfg", config)
+        monkeypatch.setattr(quest, "auto", auto)
+        monkeypatch.setattr(quest, "ocr", SimpleNamespace(recognize_multi_lines=recognize))
+        monkeypatch.setattr(quest, "screen", Mock())
+        monkeypatch.setattr(quest, "drag_to_edge", Mock(return_value=True))
+        monkeypatch.setattr(quest, "drag_list", Mock(return_value=True))
+        monkeypatch.setattr(quest, "changed_ratio", Mock(return_value=1))
+        monkeypatch.setattr(quest, "time", SimpleNamespace(sleep=Mock()))
+        monkeypatch.setattr(readout, "ocr", SimpleNamespace(recognize_multi_lines=recognize))
+        monkeypatch.setattr(readout, "time", SimpleNamespace(sleep=Mock()))
+        notify = Mock()
+        action = Mock()
+        monkeypatch.setattr(quest, "notify_reward", notify)
+        monkeypatch.setattr(quest, "confirm_item_reward", Mock())
+        monkeypatch.setattr(quest, "close_item_reward", Mock(return_value=True))
+        assert quest.Quest.settle(complete=True, actions=(("拍照1次", action),))
+
+        assert frames == [badge_crop] + [card_crop] * previous_page + [badge_crop] * 6 + [card_crop]
+        action.assert_not_called()
+        assert quest.drag_list.call_count == previous_page
+        assert auto.find_element.call_args.args[0] == quest.RECEIVE_MILESTONE
+        assert auto.click_element_with_pos.call_args_list == [call(BUTTON)] + [call(milestone)] * previous_page
+        if full_notice:
+            config.save_timestamp.assert_called_once_with("last_run_timestamp")
+            assert notify.call_args.args == (auto, "实训完成通知")
+        else:
+            config.save_timestamp.assert_not_called()
+            if previous_page:
+                assert notify.call_args.args == (auto, "已领取实训奖励，活跃度 400/500")
+            else:
+                notify.assert_not_called()
 
     @pytest.mark.parametrize("mod,cls_name", [
         (apocalyptic, "Apocalyptic"),

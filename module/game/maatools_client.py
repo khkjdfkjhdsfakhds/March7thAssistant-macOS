@@ -37,7 +37,7 @@ class MaaToolsClient:
     # 脚本进程被强制结束时来不及抬起手指 PlayTools 会让这些手指一直按着 例如普通攻击按钮一直是按下状态
     STALE_CONTACT_CNT: int = 32
 
-    def __init__(self, host: str = '127.0.0.1', port: int = 1717, timeout: float = 5) -> None:
+    def __init__(self, host: str = '127.0.0.1', port: int = 1717, timeout: float = 10) -> None:
         self.host: str = host
         self.port: int = port
         self.timeout: float = timeout
@@ -128,6 +128,16 @@ class MaaToolsClient:
     def _send(self, payload: bytes) -> None:
         self._sock.sendall(struct.pack('>H', len(payload)) + payload)
 
+    def _screenshot_once_unlocked(self) -> "np.ndarray | None":
+        self._send(b'BGR\x01')
+        width, height, length = struct.unpack('>III', self._recv(12))
+        if length == 0:
+            return None
+        data = self._recv(length)  # 长度不对也要读完 否则剩下的数据会让后面的命令读错位
+        if length != width * height * 3:
+            return None
+        return np.frombuffer(data, dtype=np.uint8).reshape(height, width, 3)
+
     def screenshot(self) -> "np.ndarray | None":
         """
         截取游戏画面
@@ -139,18 +149,19 @@ class MaaToolsClient:
             if not self._connect_unlocked():
                 return None
             try:
-                self._send(b'BGR\x01')
-                width, height, length = struct.unpack('>III', self._recv(12))
-                if length == 0:
-                    return None
-                data = self._recv(length)  # 长度不对也要读完 否则剩下的数据会让后面的命令读错位
-                if length != width * height * 3:
-                    return None
+                return self._screenshot_once_unlocked()
             except OSError as e:
-                log.error(f'MaaTools 截图失败 {e}')
+                log.debug(f'MaaTools 截图超时或断开，静默重连重试：{e}')
                 self._close_unlocked()
-                return None
-        return np.frombuffer(data, dtype=np.uint8).reshape(height, width, 3)
+                if not self._connect_unlocked():
+                    log.error(f'MaaTools 截图失败（重连失败）：{e}')
+                    return None
+                try:
+                    return self._screenshot_once_unlocked()
+                except OSError as retry_err:
+                    log.error(f'MaaTools 截图失败 {retry_err}')
+                    self._close_unlocked()
+                    return None
 
     def touch(self, phase: TouchPhase, x: int, y: int, contact: int = 0) -> bool:
         """

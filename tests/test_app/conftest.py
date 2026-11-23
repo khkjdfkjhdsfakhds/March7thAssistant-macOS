@@ -142,15 +142,30 @@ def qtbot(qapp):
     bot.cleanup()
 
 
+@pytest.fixture(scope='package', autouse=True)
+def _use_compiled_locales(compiled_locales):
+    language = localization.get_current_language()
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(localization, '_locale_dir', compiled_locales)
+        localization.load_language(language)
+        yield
+    localization.load_language(language)
+
+
 @pytest.fixture
-def window(qtbot, monkeypatch, tmp_path):
+def window(qtbot, monkeypatch, tmp_path, request):
     from app import main_window as module
     from module.config import cfg
 
     original = localization.get_current_language()
     original_ui = getattr(cfg, 'ui_language_now', 'zh_CN')
     original_theme = qconfig.theme
-    monkeypatch.setattr(cfg, 'config', deepcopy(cfg.config))
+    config = deepcopy(cfg.config)
+    config['evernight_unlocked'] = False
+    if config.get('ui_theme') == 'evernight':
+        config['ui_theme'] = 'auto'
+    config.update(getattr(request, 'param', {}))
+    monkeypatch.setattr(cfg, 'config', config)
     monkeypatch.setattr(cfg, 'config_path', str(tmp_path / 'config.yaml'))
     monkeypatch.setattr(cfg, 'set_value', Mock())
     monkeypatch.setattr(cfg, 'set_values', Mock())

@@ -16,6 +16,7 @@ class LocalGameController(GameControllerBase):
         self.process_name = ""
         self.window_name = ""
         self.window_class = 'UnityWndClass'
+        self.launched_new_process: bool | None = None
         self.reload_config(cfg)
 
     def reload_config(self, cfg: Config) -> None:
@@ -26,13 +27,19 @@ class LocalGameController(GameControllerBase):
         self.window_name = cfg.game_title_name
 
     def start_game_process(self) -> bool:
-        """启动游戏"""
+        """启动游戏。直启标记为 True，复用游戏标记为 False。"""
+        self.launched_new_process = None
+        if self.is_game_running():
+            self.launched_new_process = False
+            self.log_info("游戏已运行，复用现有游戏窗口")
+            return True
         if not os.path.exists(self.game_path):
             self.log_error(f"游戏路径不存在：{self.game_path}")
             return False
 
         game_folder = self.game_path.rpartition('\\')[0]
         if not os.system(f'cmd /C start "" /D "{game_folder}" "{self.game_path}"'):
+            self.launched_new_process = True
             self.log_info(f"游戏启动：{self.game_path}")
             return True
         else:
@@ -40,6 +47,7 @@ class LocalGameController(GameControllerBase):
             try:
                 # 为什么有的用户环境变量内没有cmd呢？
                 subprocess.Popen(self.game_path)
+                self.launched_new_process = True
                 self.log_info(f"游戏启动：{self.game_path}")
                 return True
             except Exception as e:
@@ -69,7 +77,7 @@ class LocalGameController(GameControllerBase):
                 continue
 
             # 精准匹配进程名并属于当前用户
-            if target_process_name.lower() in name.lower() and user == current_user:
+            if name and target_process_name.lower() in name.lower() and user == current_user:
                 try:
                     p = psutil.Process(proc.info["pid"])
                     p.terminate()

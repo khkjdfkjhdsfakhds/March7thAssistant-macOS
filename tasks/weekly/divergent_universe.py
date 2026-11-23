@@ -9,6 +9,7 @@ from module.notification.notification import NotificationLevel
 from tasks.base.base import Base
 from tasks.base.task_steps import optional_reward
 from utils.date import Date
+from utils.game_key_templates import find_interact_prompt
 from typing import Literal, Tuple, Optional
 import numpy as np
 import time
@@ -156,35 +157,7 @@ class DivergentUniverse:
         return claimed
 
     def process_ornament(self):
-        screen.change_to("guide3")
-
-        immersifier_crop = (1623.0 / 1920, 40.0 / 1080, 162.0 / 1920, 52.0 / 1080)
-        text = auto.get_single_line_text(crop=immersifier_crop, blacklist=['+', '米'], max_retries=3)
-        if "/12" not in text:
-            log.error("沉浸器数量识别失败")
-            return
-
-        immersifier_count = int(text.split("/")[0])
-        log.info(f"沉浸器: {immersifier_count}/12")
-        if immersifier_count > 0:
-            instance_name = cfg.instance_names["饰品提取"]
-
-            # 使用培养目标的副本配置（如果启用）
-            try:
-                if cfg.build_target_enable:
-                    from tasks.daily.buildtarget import BuildTarget
-                    target_instances = BuildTarget.get_target_instances()
-
-                    for target_type, target_name in target_instances:
-                        # 精确匹配副本类型
-                        if target_type == "饰品提取":
-                            log.info(f"使用培养目标副本: {target_name}")
-                            instance_name = target_name
-                            break
-            except Exception as e:
-                log.error(f"获取培养目标副本失败: {e}")
-
-            Power.process("饰品提取", instance_name, immersifier_only=True)
+        Power.process_immersifier_only()
 
     def start_war(self, type: Literal["normal", "cycle"] = "normal") -> bool:
         log.info("开始「差分宇宙」")
@@ -488,7 +461,7 @@ class DivergentUniverse:
         screen_center_x = win_x + width // 2
         tolerance = width // 12
         fine_tolerance = width // 15
-        f_crop = (1078 / 1920, 595 / 1080, 37 / 1920, 37 / 1080)
+        interact_key = cfg.get_game_hotkey("hotkey_interact", "f")
 
         event_count = 0
         timeout_retries = 0
@@ -561,7 +534,7 @@ class DivergentUniverse:
             else:
                 log.debug("事件已在屏幕中间")
 
-            # 向事件走去，边走边检测F图标和事件位置
+            # 向事件走去，边走边检测交互键和事件位置
             event_interacted = False
 
             timeout = 60 if stable_mode else 15
@@ -578,14 +551,13 @@ class DivergentUniverse:
             try:
                 start_time = time.monotonic()
                 while time.monotonic() - start_time < timeout:
-                    # 检测F交互图标
-                    if auto.find_element("./assets/images/screen/divergent_universe/f.png", "image", 0.9, crop=f_crop):
+                    if find_interact_prompt(auto, interact_key, compact=True):
                         has_f_or_adjusted_in_window = True
-                        log.debug("检测到F交互图标")
+                        log.debug("检测到交互键提示")
                         if not stable_mode:
                             auto.press_key_up("w")
                         if auto.find_element("事件", "text", crop=(1205 / 1920, 589 / 1080, 193 / 1920, 49 / 1080), include=True):
-                            auto.press_key("f")
+                            auto.press_key(interact_key)
                             time.sleep(2)
                             event_start_time = time.monotonic()
                             # for _ in range(100):
@@ -700,9 +672,9 @@ class DivergentUniverse:
                     return
                 log.info(f"事件超时（第 {timeout_retries}/3 次），重新进入关卡重试")
 
-                if auto.find_element("./assets/images/share/base/F.png", "image", 0.9, crop=(998.0 / 1920, 473.0 / 1080, 392.0 / 1920, 296.0 / 1080)) and auto.find_element(("战利品", "混沌药箱"), "text", crop=(1205 / 1920, 589 / 1080, 193 / 1920, 49 / 1080), include=True):
+                if find_interact_prompt(auto, interact_key) and auto.find_element(("战利品", "混沌药箱"), "text", crop=(1205 / 1920, 589 / 1080, 193 / 1920, 49 / 1080), include=True):
                     log.info(f"检测到{auto.matched_text}，尝试点击")
-                    auto.press_key("f")
+                    auto.press_key(interact_key)
                     time.sleep(2)
                     for _ in range(100):
                         if self.check_click_close() or self.check_title():
@@ -760,6 +732,7 @@ class DivergentUniverse:
         return self._attempt_enter_battle(stage_crop)
 
     def process_battle_stage(self):
+        interact_key = cfg.get_game_hotkey("hotkey_interact", "f")
         stage_crop = (33 / 1920, 52 / 1080, 68 / 1920, 60 / 1080)
         enemy_crop = (675 / 1920, 41 / 1080, 274 / 1920, 37 / 1080)
         for attempt in range(3):
@@ -783,9 +756,9 @@ class DivergentUniverse:
                 if sprint:
                     auto.press_key_up("shift")
 
-            if auto.find_element("./assets/images/share/base/F.png", "image", 0.9, crop=(998.0 / 1920, 473.0 / 1080, 392.0 / 1920, 296.0 / 1080)) and auto.find_element(("战利品", "混沌药箱"), "text", crop=(1205 / 1920, 589 / 1080, 193 / 1920, 49 / 1080), include=True):
+            if find_interact_prompt(auto, interact_key) and auto.find_element(("战利品", "混沌药箱"), "text", crop=(1205 / 1920, 589 / 1080, 193 / 1920, 49 / 1080), include=True):
                 log.info(f"检测到{auto.matched_text}，尝试点击")
-                auto.press_key("f")
+                auto.press_key(interact_key)
                 time.sleep(2)
                 for _ in range(100):
                     if self.check_click_close() or self.check_title():
@@ -820,12 +793,13 @@ class DivergentUniverse:
         self.process_stage = True
 
     def process_battle_stage_finish(self):
+        interact_key = cfg.get_game_hotkey("hotkey_interact", "f")
         time.sleep(2)
         self.process_stage = False
 
-        if auto.find_element("./assets/images/share/base/F.png", "image", 0.9, crop=(998.0 / 1920, 473.0 / 1080, 392.0 / 1920, 296.0 / 1080)) and auto.find_element(("战利品", "混沌药箱"), "text", crop=(1205 / 1920, 589 / 1080, 193 / 1920, 49 / 1080), include=True):
+        if find_interact_prompt(auto, interact_key) and auto.find_element(("战利品", "混沌药箱"), "text", crop=(1205 / 1920, 589 / 1080, 193 / 1920, 49 / 1080), include=True):
             log.info(f"检测到{auto.matched_text}，尝试点击")
-            auto.press_key("f")
+            auto.press_key(interact_key)
             time.sleep(2)
             for _ in range(100):
                 if self.check_click_close() or self.check_title():
@@ -836,9 +810,9 @@ class DivergentUniverse:
         if self.process_random_door():
             return
 
-        if auto.find_element("./assets/images/share/base/F.png", "image", 0.9, crop=(998.0 / 1920, 473.0 / 1080, 392.0 / 1920, 296.0 / 1080)) and auto.find_element(("战利品", "混沌药箱"), "text", crop=(1205 / 1920, 589 / 1080, 193 / 1920, 49 / 1080), include=True):
+        if find_interact_prompt(auto, interact_key) and auto.find_element(("战利品", "混沌药箱"), "text", crop=(1205 / 1920, 589 / 1080, 193 / 1920, 49 / 1080), include=True):
             log.info(f"检测到{auto.matched_text}，尝试点击")
-            auto.press_key("f")
+            auto.press_key(interact_key)
             time.sleep(2)
             for _ in range(100):
                 if self.check_click_close() or self.check_title():
@@ -965,13 +939,14 @@ class DivergentUniverse:
 
     def process_re_enter(self) -> bool:
         """重新进入关卡；区域编号已变化时返回 True，调用方应停止旧区域流程。"""
+        interact_key = cfg.get_game_hotkey("hotkey_interact", "f")
         log.info("尝试重新进入当前关卡")
         for _ in range(3):
             auto.press_key("esc")
             if auto.click_element("暂离", "text", max_retries=10, crop=(1238 / 1920, 859 / 1080, 562 / 1920, 165 / 1080)):
                 screen.wait_for_screen_change("main")
-                if auto.find_element("./assets/images/share/base/F.png", "image", 0.9, crop=(998.0 / 1920, 473.0 / 1080, 392.0 / 1920, 296.0 / 1080)):
-                    auto.press_key("f")
+                if find_interact_prompt(auto, interact_key):
+                    auto.press_key(interact_key)
                     screen.wait_for_screen_change('divergent_main')
                 screen.change_to("divergent_mode_select")
                 if auto.click_element("继续进度", "text", crop=(39 / 1920, 215 / 1080, 748 / 1920, 597 / 1080)):
@@ -1077,8 +1052,8 @@ class DivergentUniverse:
                 finally:
                     auto.press_key_up(key)
 
-        # 向随意门走去，边走边检测F图标和门的位置
-        f_crop = (1078 / 1920, 595 / 1080, 37 / 1920, 37 / 1080)
+        # 向随意门走去，边走边检测交互键和门的位置
+        interact_key = cfg.get_game_hotkey("hotkey_interact", "f")
         door_crop = (1146 / 1920, 585 / 1080, 57 / 1920, 57 / 1080)
 
         if stable_mode:
@@ -1102,19 +1077,18 @@ class DivergentUniverse:
             while time.monotonic() - start_time < timeout:
                 # time.sleep(0.1)
 
-                # 检测F交互图标
-                if auto.find_element("./assets/images/screen/divergent_universe/f.png", "image", 0.9, crop=f_crop):
-                    log.debug("检测到F交互图标")
+                if find_interact_prompt(auto, interact_key, compact=True):
+                    log.debug("检测到交互键提示")
                     if not stable_mode:
                         auto.press_key_up("w")
                         # auto.press_key_up("shift")
 
                     if auto.find_element("./assets/images/screen/divergent_universe/door.png", "image", 0.9, crop=door_crop):
-                        auto.press_key("f")
-                        auto.press_key("f")
-                        auto.press_key("f")
-                        auto.press_key("f")
-                        auto.press_key("f")
+                        auto.press_key(interact_key)
+                        auto.press_key(interact_key)
+                        auto.press_key(interact_key)
+                        auto.press_key(interact_key)
+                        auto.press_key(interact_key)
                         time.sleep(2)
                         if auto.find_element("./assets/images/screen/divergent_universe/stage.png", "image", 0.9, crop=(33 / 1920, 52 / 1080, 68 / 1920, 60 / 1080)):
                             return False
@@ -1817,7 +1791,7 @@ class DivergentUniverse:
         """
         if game_option_enabled(cfg, "auto_battle_detect_enable") and auto.find_element("./assets/images/share/base/not_auto.png", "image", 0.9, crop=(0.0 / 1920, 903.0 / 1080, 144.0 / 1920, 120.0 / 1080)):
             log.info("尝试开启自动战斗")
-            auto.press_key(cfg.get_value("hotkey_auto_battle", "v"))
+            auto.press_key(cfg.get_game_hotkey("hotkey_auto_battle", "v"))
             return True
         return False
 

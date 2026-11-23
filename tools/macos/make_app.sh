@@ -135,7 +135,15 @@ for item in app module tasks utils assets 3rdparty; do
     --exclude '__pycache__' \
     --exclude '*.pyc' \
     --exclude '.DS_Store' \
+    --exclude 'locales/*/LC_MESSAGES/*.mo' \
     "$PROJECT_DIR/$item/" "$CONTENTS/Resources/app/$item/"
+done
+"$VENV_PY" -m tools.i18n compile --output-dir "$CONTENTS/Resources/app/assets/locales"
+for _lang in zh_CN zh_TW ja_JP ko_KR en_US; do
+  if [[ ! -f "$CONTENTS/Resources/app/assets/locales/$_lang/LC_MESSAGES/march7th.mo" ]]; then
+    echo "Error: missing compiled locale $_lang/LC_MESSAGES/march7th.mo in bundle!" >&2
+    exit 1
+  fi
 done
 printf '%s\n' "$EDITION" > "$CONTENTS/Resources/app/assets/config/build_edition.txt"
 mkdir -p "$CONTENTS/Resources/app/tools/macos"

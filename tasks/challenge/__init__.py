@@ -8,12 +8,13 @@ from module.config import cfg
 
 class ChallengeManager:
     def __init__(self):
+        technique_key = cfg.get_game_hotkey("hotkey_technique", "e")
         self.game_modes = {
-            "memoryofchaos": MemoryOfChaos(cfg.forgottenhall_team1, cfg.forgottenhall_team2, cfg.forgottenhall_level, cfg.hotkey_technique, cfg.auto_battle_detect_enable,
+            "memoryofchaos": MemoryOfChaos(cfg.forgottenhall_team1, cfg.forgottenhall_team2, cfg.forgottenhall_level, technique_key, cfg.auto_battle_detect_enable,
                                            cfg.get_value("forgottenhall_team1_preset", 0), cfg.get_value("forgottenhall_team2_preset", 0)),
-            "purefiction": PureFiction(cfg.purefiction_team1, cfg.purefiction_team2, cfg.purefiction_level, cfg.hotkey_technique, cfg.auto_battle_detect_enable),
-            "memoryone": MemoryOne(cfg.daily_memory_one_team, cfg.hotkey_technique, cfg.auto_battle_detect_enable),
-            "apocalyptic": Apocalyptic(cfg.apocalyptic_team1, cfg.apocalyptic_team2, cfg.apocalyptic_level, cfg.hotkey_technique, cfg.auto_battle_detect_enable),
+            "purefiction": PureFiction(cfg.purefiction_team1, cfg.purefiction_team2, cfg.purefiction_level, technique_key, cfg.auto_battle_detect_enable),
+            "memoryone": MemoryOne(cfg.daily_memory_one_team, technique_key, cfg.auto_battle_detect_enable),
+            "apocalyptic": Apocalyptic(cfg.apocalyptic_team1, cfg.apocalyptic_team2, cfg.apocalyptic_level, technique_key, cfg.auto_battle_detect_enable),
         }
 
     def run(self, mode: Literal["memoryofchaos", "purefiction", "memoryone", "apocalyptic"], count=1):
