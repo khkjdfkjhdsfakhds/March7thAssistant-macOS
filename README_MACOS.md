@@ -11,7 +11,7 @@
 
 ## 1. 下载安装与首次打开（`.dmg` 独立包）
 
-1. 前往 [Releases](https://github.com/khkjdfkjhdsfakhds/March7thAssistant-macOS/releases) 下载 `March7thAssistant-macOS-v2026.11.22-macos.1-arm64.dmg`。
+1. 前往 [Releases](https://github.com/khkjdfkjhdsfakhds/March7thAssistant-macOS/releases) 下载 `March7thAssistant-macOS-v2026.11.24-macos.1-arm64.dmg`。
 2. 双击打开 `.dmg`，将 **三月七小助手.app** 拖入 `Applications`（`/Applications`）文件夹。
    - `.app` 已内置完整 Python 3.12 运行时、`PySide6`、`RapidOCR` 离线模型与任务脚本，**无需在本机安装 Homebrew 或配置 Python 环境**。
 3. **首次打开（未公证开源应用处理）**：
@@ -94,7 +94,7 @@ uv sync  # 或使用 .venv/bin/pip install -r requirements.txt
 # 1. 构建自包含、可移植的 dist/三月七小助手.app（并同步安装至 /Applications）
 bash tools/macos/make_app.sh
 
-# 2. 封装生成 dist/March7thAssistant-macOS-v2026.11.22-macos.1-arm64.dmg 与 SHA256SUMS.txt
+# 2. 封装生成 dist/March7thAssistant-macOS-v2026.11.24-macos.1-arm64.dmg 与 SHA256SUMS.txt
 bash tools/macos/make_dmg.sh
 
 # 3. 离线测试

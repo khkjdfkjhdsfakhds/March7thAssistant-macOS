@@ -735,6 +735,15 @@ class DivergentUniverse:
         interact_key = cfg.get_game_hotkey("hotkey_interact", "f")
         stage_crop = (33 / 1920, 52 / 1080, 68 / 1920, 60 / 1080)
         enemy_crop = (675 / 1920, 41 / 1080, 274 / 1920, 37 / 1080)
+        is_boss = self.current_stage.endswith("|首领")
+        forward_attempts = 0
+
+        def stage_visible(max_retries=1):
+            return auto.find_element(
+                "./assets/images/screen/divergent_universe/stage.png", "image", 0.9,
+                crop=stage_crop, max_retries=max_retries, retry_delay=0.5,
+            )
+
         for attempt in range(3):
             time.sleep(2)
             sprint = get_control_backend(cfg) != "cloud" and not cfg.weekly_divergent_stable_mode
@@ -773,6 +782,21 @@ class DivergentUniverse:
                 if not self.stage_finish:
                     self.process_stage = True
                 return
+
+            if is_boss:
+                on_stage = stage_visible(max_retries=2)
+                while on_stage and forward_attempts < 5:
+                    forward_attempts += 1
+                    log.info(f"前进 1 秒接近首领（{forward_attempts}/5）")
+                    moved = auto.press_key("w", 1)
+                    on_stage = stage_visible(max_retries=2)
+                    if on_stage and moved is not False:
+                        auto.press_mouse()
+                        time.sleep(1)
+                        on_stage = stage_visible(max_retries=2)
+                if not on_stage:
+                    self.process_stage = True
+                    return
 
             # 正前方未遇敌时，依次向后与左右两侧试探（覆盖双怪分立通道两侧的场景，避免直接冲进随意门或反复重进）
             for move_key, hold_seconds in (("s", 0.2), ("d", 0.7), ("a", 1.4)):

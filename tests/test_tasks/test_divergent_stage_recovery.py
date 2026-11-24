@@ -337,3 +337,49 @@ def test_battle_stage_releases_move_and_sprint_on_exception(task):
 
     assert [c.args for c in auto.press_key_up.call_args_list] == [("w",), ("shift",)]
 
+
+def test_boss_stage_approaches_forward_until_entering_combat(task):
+    obj, auto, _ = task
+    obj.current_stage = "13/13|第三位面|首领"
+    obj.check_click_close = Mock(return_value=False)
+    obj.check_title = Mock(return_value=False)
+    obj.process_re_enter = Mock(return_value=False)
+
+    w_steps = 0
+
+    def record_press_key(key, hold=0.2):
+        nonlocal w_steps
+        if (key, hold) == ("w", 1):
+            w_steps += 1
+
+    auto.press_key.side_effect = record_press_key
+    auto.find_element.side_effect = lambda target, *args, **kwargs: (
+        target == STAGE_IMAGE and w_steps < 2
+    )
+
+    obj.process_battle_stage()
+
+    assert [c.args for c in auto.press_key.call_args_list] == [("w", 1), ("w", 1)]
+    obj.process_re_enter.assert_not_called()
+    assert obj.process_stage is True
+
+
+def test_boss_stage_caps_forward_attempts_and_falls_back_to_bypass(task):
+    obj, auto, _ = task
+    obj.current_stage = "13/13|第三位面|首领"
+    obj.check_click_close = Mock(return_value=False)
+    obj.check_title = Mock(return_value=False)
+    obj.process_re_enter = Mock(return_value=True)
+    auto.find_element.side_effect = lambda target, *args, **kwargs: target == STAGE_IMAGE
+
+    obj.process_battle_stage()
+
+    assert [c.args for c in auto.press_key.call_args_list] == [
+        ("w", 1), ("w", 1), ("w", 1), ("w", 1), ("w", 1),
+        ("s", 0.2), ("d", 0.7), ("a", 1.4),
+        ("s", 0.3), ("d", 0.25), ("w", 2.4),
+        ("d", 0.5), ("w", 1.5),
+    ]
+    obj.process_re_enter.assert_called_once()
+
+
